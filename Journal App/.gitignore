@@ -1,0 +1,12 @@
+# Build output
+bin/
+obj/
+
+# User-specific files
+*.user
+*.suo
+
+# VS / Rider / cache
+.vs/
+.idea/
+*.cache
