@@ -1,0 +1,99 @@
+﻿<div class="mb-2">
+    <label class="form-label">@Label</label>
+
+    <!-- Selected tags -->
+    <div class="d-flex flex-wrap gap-2 mb-2">
+        @foreach (var t in SelectedTags)
+        {
+            <span class="badge rounded-pill bg-secondary">
+                @t
+                <button type="button" class="btn btn-sm btn-link text-white text-decoration-none ms-1 p-0"
+                        @onclick="() => Remove(t)">
+                    ×
+                </button>
+            </span>
+        }
+        @if (!SelectedTags.Any())
+        {
+            <small class="text-muted">No tags selected</small>
+        }
+    </div>
+
+    <!-- Input -->
+    <div class="input-group">
+        <input class="form-control" placeholder="Type a tag…"
+               @bind="Query" @bind:event="oninput" />
+        <button class="btn btn-outline-primary" type="button"
+                disabled="@(!CanAddNew)"
+                @onclick="AddNewFromQuery">
+            Add “@Query”
+        </button>
+    </div>
+
+    <!-- Suggestions -->
+    @if (Suggestions.Any())
+    {
+        <div class="list-group mt-2">
+            @foreach (var s in Suggestions)
+            {
+                <button type="button"
+                        class="list-group-item list-group-item-action"
+                        @onclick="() => AddExisting(s)">
+                    @s
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string Label { get; set; } = "Tags";
+    [Parameter] public List<string> AllTags { get; set; } = new();      // supply from DB/service
+    [Parameter] public List<string> SelectedTags { get; set; } = new(); // bound to entry
+    [Parameter] public EventCallback<List<string>> SelectedTagsChanged { get; set; }
+
+    private string Query { get; set; } = "";
+
+    private IEnumerable<string> Suggestions =>
+        string.IsNullOrWhiteSpace(Query)
+            ? Enumerable.Empty<string>()
+            : AllTags
+                .Where(t => t.Contains(Query, StringComparison.OrdinalIgnoreCase))
+                .Where(t => !SelectedTags.Contains(t, StringComparer.OrdinalIgnoreCase))
+                .Take(8);
+
+    private bool CanAddNew =>
+        !string.IsNullOrWhiteSpace(Query)
+        && !SelectedTags.Contains(Query.Trim(), StringComparer.OrdinalIgnoreCase)
+        && !AllTags.Contains(Query.Trim(), StringComparer.OrdinalIgnoreCase);
+
+    private async Task AddExisting(string tag)
+    {
+        var clean = tag.Trim();
+        if (!SelectedTags.Contains(clean, StringComparer.OrdinalIgnoreCase))
+        {
+            SelectedTags.Add(clean);
+            Query = "";
+            await SelectedTagsChanged.InvokeAsync(SelectedTags);
+        }
+    }
+
+    private async Task AddNewFromQuery()
+    {
+        var clean = Query.Trim();
+        if (string.IsNullOrWhiteSpace(clean)) return;
+
+        // UI-only: we add to selected + also to AllTags so it appears next time.
+        // Later you MUST persist new tags via your TagService.
+        if (!AllTags.Contains(clean, StringComparer.OrdinalIgnoreCase))
+            AllTags.Add(clean);
+
+        await AddExisting(clean);
+    }
+
+    private async Task Remove(string tag)
+    {
+        SelectedTags.RemoveAll(t => string.Equals(t, tag, StringComparison.OrdinalIgnoreCase));
+        await SelectedTagsChanged.InvokeAsync(SelectedTags);
+    }
+}

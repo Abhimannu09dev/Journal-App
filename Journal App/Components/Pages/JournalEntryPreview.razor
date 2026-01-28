@@ -1,0 +1,333 @@
+﻿@page "/journal/preview/{dateKey}"
+@using CommunityToolkit.Maui.Storage
+@using System.Globalization
+@using Journal_App.Entities
+@using Journal_App.Services.Export
+@using Markdig
+@inject IJournalService JournalService
+@inject IExportService ExportService
+@inject AuthStateService AuthState
+@inject NavigationManager Nav
+
+<div class="container py-4" style="max-width: 900px;">
+    <!-- Header -->
+    <div class="d-flex justify-content-between align-items-start mb-3">
+        <div>
+            <h2 class="mb-1">@title</h2>
+            <div class="text-secondary">@dateDisplay</div>
+        </div>
+
+        <div class="d-flex gap-2 align-items-center">
+            <button class="btn btn-outline-secondary" @onclick="GoCalendar">
+                <span class="bi bi-calendar3 me-2"></span>Calendar
+            </button>
+
+            @if (entry is null)
+            {
+                <button class="btn btn-primary" @onclick="GoCreate" disabled="@isFuture">
+                    <span class="bi bi-plus-circle me-2"></span>Create
+                </button>
+            }
+            else
+            {
+                <!-- ✅ Individual export button -->
+                <button class="btn btn-outline-primary" @onclick="ExportThisEntry" disabled="@isLoading">
+                    <span class="bi bi-download me-2"></span>Export PDF
+                </button>
+
+                @if (canEdit)
+                {
+                    <button class="btn btn-primary" @onclick="GoEdit">
+                        <span class="bi bi-pencil-square me-2"></span>Edit
+                    </button>
+                }
+                else
+                {
+                    <span class="text-secondary small">
+                        <span class="bi bi-lock me-1"></span>Past entries are locked
+                    </span>
+                }
+            }
+        </div>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(statusMessage))
+    {
+        <div class="alert @statusClass" role="alert">
+            @statusMessage
+        </div>
+    }
+
+    @if (isLoading)
+    {
+        <p>Loading...</p>
+    }
+    else if (!isValidDate)
+    {
+        <div class="card p-4">
+            <p class="mb-0">Invalid date format. Use <strong>yyyy-MM-dd</strong>.</p>
+        </div>
+    }
+    else if (isFuture)
+    {
+        <div class="card p-4">
+            <p class="mb-0">Future dates are disabled.</p>
+        </div>
+    }
+    else if (entry is null)
+    {
+        <div class="card p-4">
+            <p class="mb-0">No entry saved for this date.</p>
+        </div>
+    }
+    else
+    {
+        <!-- Moods -->
+        <div class="card p-3 mb-3">
+            <div class="fw-semibold mb-2">Mood</div>
+
+            <div>
+                <span class="text-secondary small">Primary:</span>
+                <span class="ms-2">@primaryMoodText</span>
+            </div>
+
+            <div class="mt-2">
+                <span class="text-secondary small">Secondary:</span>
+                <span class="ms-2">@secondaryMoodText</span>
+            </div>
+        </div>
+
+        <!-- Tags -->
+        <div class="card p-3 mb-3">
+            <div class="fw-semibold mb-2">Tags</div>
+
+            @if (tags.Count == 0)
+            {
+                <span class="text-secondary small">No tags.</span>
+            }
+            else
+            {
+                <div class="d-flex flex-wrap gap-2">
+                    @foreach (var t in tags.OrderBy(x => x))
+                    {
+                        <span class="badge rounded-pill bg-secondary">@t</span>
+                    }
+                </div>
+            }
+        </div>
+
+        <!-- Content -->
+        <div class="card p-4">
+            <div class="fw-semibold mb-3">Entry</div>
+            <div class="journal-preview">
+                @((MarkupString)Markdown.ToHtml(entry.Content ?? ""))
+            </div>
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public string dateKey { get; set; } = "";
+
+    private bool isLoading = true;
+    private bool isValidDate = true;
+    private bool isFuture = false;
+    private bool canEdit = false;
+
+    private JournalEntry? entry;
+
+    private string title = "Journal Preview";
+    private string dateDisplay = "";
+
+    private string statusMessage = "";
+    private string statusClass = "alert-secondary";
+
+    private HashSet<string> tags = new(StringComparer.OrdinalIgnoreCase);
+
+    private string primaryMoodText = "—";
+    private string secondaryMoodText = "—";
+
+    private DateTime selectedDate;
+    private string selectedDateKey = "";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!AuthState.IsAuthenticated)
+        {
+            Nav.NavigateTo("/login", replace: true);
+            return;
+        }
+
+        ResetState();
+
+        // Parse date key
+        if (!TryParseDateKey(dateKey, out selectedDate))
+        {
+            isValidDate = false;
+            isLoading = false;
+            return;
+        }
+
+        selectedDateKey = selectedDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        dateDisplay = selectedDate.ToString("dddd, MMMM dd, yyyy", CultureInfo.InvariantCulture);
+
+        // Future-date rule
+        isFuture = selectedDate.Date > DateTime.Today.Date;
+        if (isFuture)
+        {
+            isLoading = false;
+            return;
+        }
+
+        // Edit rule: only allow editing today's entry
+        var todayKey = DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        canEdit = (selectedDateKey == todayKey);
+
+        // Load entry
+        isLoading = true;
+        entry = await JournalService.GetEntryByDateAsync(selectedDateKey);
+
+        if (entry != null)
+        {
+            title = string.IsNullOrWhiteSpace(entry.Title) ? "Untitled Entry" : entry.Title;
+
+            // Tags
+            tags = new HashSet<string>(
+                entry.EntryTags
+                    .Select(et => et.Tag?.Name)
+                    .Where(n => !string.IsNullOrWhiteSpace(n))!
+                    .Select(n => n!),
+                StringComparer.OrdinalIgnoreCase
+            );
+
+            // Moods
+            var primary = entry.EntryMoods.FirstOrDefault(em => em.MoodRole == "primary")?.Mood;
+            primaryMoodText = primary == null ? "—" : $"{primary.Emoji} {primary.Name}";
+
+            var secondaries = entry.EntryMoods
+                .Where(em => em.MoodRole == "secondary")
+                .Select(em => em.Mood)
+                .Where(m => m != null)
+                .Select(m => $"{m!.Emoji} {m!.Name}")
+                .ToList();
+
+            secondaryMoodText = secondaries.Count == 0 ? "—" : string.Join(", ", secondaries);
+        }
+        else
+        {
+            title = "Journal Preview";
+        }
+
+        isLoading = false;
+    }
+
+    private async Task ExportThisEntry()
+    {
+        if (isLoading) return;
+
+        if (entry is null)
+        {
+            SetStatus("No entry available to export.", "alert-warning");
+            return;
+        }
+
+        try
+        {
+            var full = await JournalService.GetEntryByDateWithDetailsAsync(selectedDateKey);
+            if (full is null)
+            {
+                SetStatus("Entry not found for export.", "alert-warning");
+                return;
+            }
+
+            var exportOptions = new ExportOptions
+            {
+                IncludeTitle = true,
+                IncludeMoods = true,
+                IncludeTags = true,
+                IncludeContent = true,
+                PrivacySafeMode = false
+            };
+
+            // ✅ get PDF bytes
+            var (fileName, bytes) = await ExportService.ExportSingleEntryPdfAsync(full, exportOptions);
+
+            // ✅ let user choose location
+            using var stream = new MemoryStream(bytes);
+            var result = await FileSaver.Default.SaveAsync(fileName, stream, CancellationToken.None);
+
+            if (result.IsSuccessful)
+                SetStatus($"Export complete. Saved to: {result.FilePath}", "alert-success");
+            else
+                SetStatus("Export canceled.", "alert-warning");
+        }
+        catch (Exception ex)
+        {
+            SetStatus($"Export failed: {ex.Message}", "alert-danger");
+        }
+    }
+
+    private void GoEdit()
+    {
+        if (!canEdit)
+        {
+            SetStatus("Past entries cannot be edited.", "alert-warning");
+            return;
+        }
+
+        Nav.NavigateTo($"/journal/entry/{selectedDateKey}");
+    }
+
+    private void GoCreate()
+    {
+        if (isFuture)
+        {
+            SetStatus("Future dates are disabled.", "alert-warning");
+            return;
+        }
+
+        Nav.NavigateTo($"/journal/entry/{selectedDateKey}");
+    }
+
+    private void GoCalendar() => Nav.NavigateTo("/calendar");
+
+    private void ResetState()
+    {
+        isLoading = true;
+        isValidDate = true;
+        isFuture = false;
+        canEdit = false;
+
+        entry = null;
+
+        title = "Journal Preview";
+        dateDisplay = "";
+
+        statusMessage = "";
+        statusClass = "alert-secondary";
+
+        tags.Clear();
+        primaryMoodText = "—";
+        secondaryMoodText = "—";
+
+        selectedDate = default;
+        selectedDateKey = "";
+    }
+
+    private static bool TryParseDateKey(string? key, out DateTime date)
+    {
+        return DateTime.TryParseExact(
+            key ?? "",
+            "yyyy-MM-dd",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.None,
+            out date
+        );
+    }
+
+    private void SetStatus(string message, string cssClass)
+    {
+        statusMessage = message;
+        statusClass = cssClass;
+    }
+}
