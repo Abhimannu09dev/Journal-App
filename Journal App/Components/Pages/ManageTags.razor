@@ -1,0 +1,72 @@
+﻿@page "/tags"
+
+<h3>Manage Tags</h3>
+
+<div class="card p-3 mb-3">
+    <div class="input-group">
+        <input class="form-control" placeholder="New tag name…" @bind="NewTag" />
+        <button class="btn btn-primary" @onclick="AddTag" disabled="@string.IsNullOrWhiteSpace(NewTag)">
+            Add
+        </button>
+    </div>
+
+    @if (!string.IsNullOrWhiteSpace(Error))
+    {
+        <div class="text-danger mt-2">@Error</div>
+    }
+</div>
+
+<div class="card p-3">
+    <h6 class="mb-3">All Tags (@tagList.Count)</h6>
+
+    @if (!tagList.Any())
+    {
+        <p class="text-muted mb-0">No tags yet.</p>
+    }
+    else
+    {
+        <div class="list-group">
+            @foreach (var t in tagList.OrderBy(x => x))
+            {
+                <div class="list-group-item d-flex justify-content-between align-items-center">
+                    <span>@t</span>
+                    <button class="btn btn-sm btn-outline-danger"
+                            @onclick="() => DeleteTag(t)">
+                        Delete
+                    </button>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<string> tagList = new()
+    {
+        "Work", "Study", "Health"
+    };
+
+    private string NewTag = "";
+    private string Error = "";
+
+    private void AddTag()
+    {
+        Error = "";
+        var clean = NewTag.Trim();
+
+        if (tagList.Contains(clean, StringComparer.OrdinalIgnoreCase))
+        {
+            Error = "That tag already exists.";
+            return;
+        }
+
+        tagList.Add(clean);
+        NewTag = "";
+    }
+
+    private void DeleteTag(string tag)
+    {
+        tagList.RemoveAll(t =>
+            string.Equals(t, tag, StringComparison.OrdinalIgnoreCase));
+    }
+}

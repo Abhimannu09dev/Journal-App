@@ -1,3 +1,49 @@
 ﻿@inherits LayoutComponentBase
+@using Journal_App.Services
+@implements IDisposable
 
-@Body
+@inject ThemeService ThemeService
+@inject UserSettingsService SettingsService
+@inject IJSRuntime JS
+
+<div class="app-layout">
+    <NavMenu />
+
+    <main class="content">
+        @Body
+    </main>
+</div>
+
+@code {
+    protected override async Task OnInitializedAsync()
+    {
+        // Subscribe to theme changes
+        ThemeService.ThemeChanged += OnThemeChanged;
+
+        // Load saved theme from database
+        var settings = await SettingsService.GetSettingsAsync();
+        var savedTheme = string.IsNullOrWhiteSpace(settings.ThemeMode)
+            ? "system"
+            : settings.ThemeMode;
+
+        // Apply globally (MAUI)
+        ThemeService.Apply(savedTheme);
+
+        // Apply to CSS immediately (in case JS runs before event fires)
+        await ApplyThemeToCssAsync(savedTheme);
+    }
+
+    private async void OnThemeChanged(string mode)
+    {
+        await ApplyThemeToCssAsync(mode);
+        StateHasChanged();
+    }
+
+    private Task ApplyThemeToCssAsync(string mode)
+        => JS.InvokeVoidAsync("journalTheme.setTheme", mode).AsTask();
+
+    public void Dispose()
+    {
+        ThemeService.ThemeChanged -= OnThemeChanged;
+    }
+}

@@ -1,0 +1,132 @@
+﻿@page "/dashboard"
+@using Journal_App.Services
+@inject IDashboardService DashboardService
+
+<div class="dashboard-page">
+    <div class="dashboard-header">
+        <div>
+            <h1>Dashboard</h1>
+            <p class="dashboard-sub">Analytics & quick overview</p>
+        </div>
+        <button class="dashboard-btn" @onclick="Reload">Refresh</button>
+    </div>
+
+    @if (IsLoading)
+    {
+        <div class="dashboard-card">Loading…</div>
+    }
+    else if (Vm is null)
+    {
+        <div class="dashboard-card">No data found.</div>
+    }
+    else
+    {
+        <div class="dashboard-grid">
+            <div class="dashboard-card">
+                <div class="dashboard-stat-label">Total Entries</div>
+                <div class="dashboard-stat-value">@Vm.TotalEntries</div>
+            </div>
+
+            <div class="dashboard-card">
+                <div class="dashboard-stat-label">Current Streak</div>
+                <div class="dashboard-stat-value">
+                    @Vm.CurrentStreak <span class="dashboard-muted">days</span>
+                </div>
+            </div>
+
+            <div class="dashboard-card">
+                <div class="dashboard-stat-label">Longest Streak</div>
+                <div class="dashboard-stat-value">
+                    @Vm.LongestStreak <span class="dashboard-muted">days</span>
+                </div>
+            </div>
+
+            <div class="dashboard-card">
+                <div class="dashboard-stat-label">Emotion Overview</div>
+
+                @if (Vm.TopPrimaryMood is null)
+                {
+                    <div class="dashboard-stat-value dashboard-muted">No moods yet</div>
+                }
+                else
+                {
+                    <div class="dashboard-stat-value">
+                        <span class="dashboard-emoji">@Vm.TopPrimaryMood.Emoji</span>
+                        @Vm.TopPrimaryMood.Name
+                    </div>
+                    <div class="dashboard-hint">
+                        Selected @Vm.TopPrimaryMood.Count times as primary mood
+                    </div>
+                }
+            </div>
+        </div>
+
+        <div class="dashboard-card">
+            <div class="dashboard-card-title">Latest Entries</div>
+
+            @if (Vm.LatestEntries.Count == 0)
+            {
+                <div class="dashboard-muted">No entries yet.</div>
+            }
+            else
+            {
+                <div class="dashboard-list">
+                    @foreach (var e in Vm.LatestEntries)
+                    {
+                        <div class="dashboard-list-item">
+                            <div class="dashboard-li-top">
+                                <div>
+                                    <div class="dashboard-date">@e.EntryDate</div>
+                                    <div class="dashboard-title">@e.Title</div>
+                                </div>
+
+                                <div>
+                                    @if (!string.IsNullOrWhiteSpace(e.PrimaryMood))
+                                    {
+                                        <span class="dashboard-pill">
+                                            <span class="dashboard-emoji">@e.PrimaryMoodEmoji</span>
+                                            @e.PrimaryMood
+                                        </span>
+                                    }
+                                </div>
+                            </div>
+
+                            @if (!string.IsNullOrWhiteSpace(e.Snippet))
+                            {
+                                <div class="dashboard-snippet">@e.Snippet</div>
+                            }
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private DashboardVm? Vm;
+    private bool IsLoading = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await Load();
+    }
+
+    private async Task Reload()
+    {
+        await Load();
+    }
+
+    private async Task Load()
+    {
+        IsLoading = true;
+        try
+        {
+            Vm = await DashboardService.GetDashboardAsync(latestCount: 5);
+        }
+        finally
+        {
+            IsLoading = false;
+        }
+    }
+}

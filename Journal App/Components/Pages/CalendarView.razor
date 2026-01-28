@@ -1,0 +1,153 @@
+﻿@page "/calendar"
+@inject IJournalService JournalService
+@inject NavigationManager Nav
+
+<div class="cal-wrap">
+    <div class="cal-card">
+        <div class="cal-header">
+            <div>
+                <div class="cal-heading">Calendar</div>
+                <div class="cal-sub">@_cursor.ToString("MMMM yyyy")</div>
+            </div>
+
+            <div class="cal-actions">
+                <button class="cal-iconbtn" @onclick="PrevMonth" aria-label="Previous month">‹</button>
+                <button class="cal-iconbtn" @onclick="NextMonth" disabled="@IsNextMonthBlocked()" aria-label="Next month">›</button>
+            </div>
+        </div>
+
+        <div class="cal-weekdays">
+            @foreach (var d in _weekdays)
+            {
+                <div class="cal-weekday">@d</div>
+            }
+        </div>
+
+        <div class="cal-grid">
+            @foreach (var cell in _cells)
+            {
+                if (cell.IsEmpty)
+                {
+                    <div class="cal-daybox cal-empty"></div>
+                }
+                else
+                {
+                    var classes = "cal-daybox";
+                    if (cell.IsToday) classes += " is-today";
+                    if (cell.HasEntry) classes += " has-entry";
+                    if (cell.IsFuture) classes += " is-future";
+
+                    <button class="@classes"
+                            disabled="@cell.IsFuture"
+                            @onclick="() => OpenDate(cell.Date)">
+                        <div class="cal-daytop">
+                            <span class="cal-daynum">@cell.Date.Day</span>
+                        </div>
+
+                        @if (cell.HasEntry)
+                        {
+                            <div class="cal-indicator" title="Entry exists"></div>
+                        }
+                    </button>
+                }
+            }
+        </div>
+    </div>
+</div>
+
+
+@code {
+    private readonly string[] _weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+    private DateTime _cursor = new(DateTime.Today.Year, DateTime.Today.Month, 1);
+    private List<CalendarCell> _cells = new();
+
+    // Your DB key format
+    private HashSet<string> _entryDateKeys = new(StringComparer.Ordinal);
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadMonthAsync();
+    }
+
+    private async Task LoadMonthAsync()
+    {
+        var year = _cursor.Year;
+        var month = _cursor.Month;
+
+        _entryDateKeys = await JournalService.GetEntryDatesForMonthAsync(year, month);
+        _cells = BuildCells(year, month, _entryDateKeys);
+    }
+
+    private List<CalendarCell> BuildCells(int year, int month, HashSet<string> entryDateKeys)
+    {
+        var list = new List<CalendarCell>();
+
+        var first = new DateTime(year, month, 1);
+        var daysInMonth = DateTime.DaysInMonth(year, month);
+
+        var leadingBlanks = (int)first.DayOfWeek; // Sun=0 ... Sat=6
+        for (int i = 0; i < leadingBlanks; i++)
+            list.Add(CalendarCell.Empty());
+
+        var today = DateTime.Today.Date;
+
+        for (int day = 1; day <= daysInMonth; day++)
+        {
+            var dt = new DateTime(year, month, day);
+            var key = dt.ToString("yyyy-MM-dd");
+
+            list.Add(new CalendarCell
+            {
+                IsEmpty = false,
+                Date = dt,
+                HasEntry = entryDateKeys.Contains(key),
+                IsToday = dt.Date == today,
+                IsFuture = dt.Date > today
+            });
+        }
+
+        while (list.Count % 7 != 0)
+            list.Add(CalendarCell.Empty());
+
+        return list;
+    }
+
+    private async Task PrevMonth()
+    {
+        _cursor = _cursor.AddMonths(-1);
+        await LoadMonthAsync();
+    }
+
+    private async Task NextMonth()
+    {
+        _cursor = _cursor.AddMonths(1);
+        await LoadMonthAsync();
+    }
+
+    private bool IsNextMonthBlocked()
+    {
+        // Blocks navigating into a month that starts in the future
+        var next = _cursor.AddMonths(1);
+        var firstOfNext = new DateTime(next.Year, next.Month, 1).Date;
+        return firstOfNext > DateTime.Today.Date;
+    }
+
+    private void OpenDate(DateTime date)
+    {
+        var key = date.Date.ToString("yyyy-MM-dd");
+        Nav.NavigateTo($"/journal/preview/{key}");
+
+    }
+
+    private class CalendarCell
+    {
+        public bool IsEmpty { get; set; }
+        public DateTime Date { get; set; }
+        public bool HasEntry { get; set; }
+        public bool IsToday { get; set; }
+        public bool IsFuture { get; set; }
+
+        public static CalendarCell Empty() => new() { IsEmpty = true };
+    }
+}
