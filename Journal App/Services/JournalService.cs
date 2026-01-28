@@ -1,6 +1,8 @@
 ﻿using Journal_App.Data;
 using Journal_App.Entities;
 using Microsoft.EntityFrameworkCore;
+using System;
+using System.Globalization;
 
 namespace Journal_App.Services
 {
@@ -13,90 +15,105 @@ namespace Journal_App.Services
             _context = context;
         }
 
-        // Entries
+        public Task<JournalEntry?> GetEntryByDateAsync(string dateKey)
+        {
+            return _context.JournalEntries
+                .Include(e => e.EntryTags)
+                    .ThenInclude(et => et.Tag)
+                .FirstOrDefaultAsync(e => e.EntryDate == dateKey);
+        }
+
         public Task<List<JournalEntry>> GetEntriesAsync()
         {
-            // include moods so preview/editor can show selected moods
             return _context.JournalEntries
-                .Include(e => e.EntryMoods)
-                    .ThenInclude(em => em.Mood)
+                .Include(e => e.EntryTags)
+                    .ThenInclude(et => et.Tag)
                 .OrderByDescending(e => e.EntryDate)
                 .ToListAsync();
         }
 
-        public Task<JournalEntry?> GetEntryByDateAsync(string entryDateKey)
+        // TAGS
+        public async Task SetEntryTagsAsync(int entryId, List<string> tagNames)
         {
-            return _context.JournalEntries
-                .Include(e => e.EntryMoods)
-                    .ThenInclude(em => em.Mood)
-                .FirstOrDefaultAsync(e => e.EntryDate == entryDateKey);
+            var entry = await _context.JournalEntries
+                .Include(e => e.EntryTags)
+                .FirstOrDefaultAsync(e => e.Id == entryId);
+
+            if (entry == null) return;
+
+            entry.EntryTags.Clear();
+
+            var clean = tagNames
+                .Select(t => t.Trim())
+                .Where(t => t.Length > 0)
+                .Distinct(StringComparer.OrdinalIgnoreCase)
+                .ToList();
+
+            foreach (var name in clean)
+            {
+                var tag = await _context.Tags
+                    .FirstOrDefaultAsync(t => t.Name.ToLower() == name.ToLower());
+
+                if (tag == null)
+                {
+                    tag = new Tag
+                    {
+                        Name = name,
+                        IsActive = true,
+                        CreatedAt = DateTime.UtcNow
+                    };
+                    _context.Tags.Add(tag);
+                    await _context.SaveChangesAsync();
+                }
+
+                entry.EntryTags.Add(new EntryTag
+                {
+                    EntryId = entry.Id,
+                    TagId = tag.Id
+                });
+            }
+
+            await _context.SaveChangesAsync();
         }
 
-        public Task<JournalEntry?> GetEntryByDateAsync(DateTime date)
+        public async Task<(bool ok, string? error)> CreateEntryAsync(
+            DateTime date,
+            string title,
+            string content,
+            string contentFormat)
         {
-            var key = date.Date.ToString("yyyy-MM-dd");
-            return GetEntryByDateAsync(key);
-        }
-
-        public Task<bool> EntryExistsAsync(DateTime date)
-        {
-            var key = date.Date.ToString("yyyy-MM-dd");
-            return _context.JournalEntries.AnyAsync(e => e.EntryDate == key);
-        }
-
-        public async Task<(bool ok, string? error)> CreateEntryAsync(DateTime date, string title, string content)
-        {
-            var key = date.Date.ToString("yyyy-MM-dd");
+            var key = date.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
             if (await _context.JournalEntries.AnyAsync(e => e.EntryDate == key))
-                return (false, "Entry already exists for this date.");
-
-            title = (title ?? "").Trim();
-            content = content ?? "";
-
-            if (string.IsNullOrWhiteSpace(title)) return (false, "Title is required.");
-            if (string.IsNullOrWhiteSpace(content)) return (false, "Content is required.");
-
-            var now = DateTime.UtcNow;
+                return (false, "Entry already exists.");
 
             var entry = new JournalEntry
             {
                 EntryDate = key,
                 Title = title,
                 Content = content,
-                WordCount = CountWords(content),
-                CreatedAt = now,
-                UpdatedAt = now
+                ContentFormat = contentFormat,
+                WordCount = CountWords(content)
             };
 
             _context.JournalEntries.Add(entry);
-
-            try
-            {
-                await _context.SaveChangesAsync();
-                return (true, null);
-            }
-            catch (DbUpdateException)
-            {
-                return (false, "Entry already exists for this date.");
-            }
+            await _context.SaveChangesAsync();
+            return (true, null);
         }
 
-        public async Task<(bool ok, string? error)> UpdateEntryAsync(int id, string title, string content)
+        public async Task<(bool ok, string? error)> UpdateEntryAsync(
+            int id,
+            string title,
+            string content,
+            string contentFormat)
         {
-            var entry = await _context.JournalEntries.FirstOrDefaultAsync(e => e.Id == id);
-            if (entry is null) return (false, "Entry not found.");
-
-            title = (title ?? "").Trim();
-            content = content ?? "";
-
-            if (string.IsNullOrWhiteSpace(title)) return (false, "Title is required.");
-            if (string.IsNullOrWhiteSpace(content)) return (false, "Content is required.");
+            var entry = await _context.JournalEntries.FindAsync(id);
+            if (entry == null) return (false, "Entry not found.");
 
             entry.Title = title;
             entry.Content = content;
+            entry.ContentFormat = contentFormat;
             entry.WordCount = CountWords(content);
-            entry.UpdatedAt = DateTime.UtcNow;
 
             await _context.SaveChangesAsync();
             return (true, null);
@@ -105,99 +122,20 @@ namespace Journal_App.Services
         public async Task<bool> DeleteEntryAsync(int id)
         {
             var entry = await _context.JournalEntries
-                .Include(e => e.EntryMoods)
+                .Include(e => e.EntryTags)
                 .FirstOrDefaultAsync(e => e.Id == id);
 
-            if (entry is null) return false;
-            entry.EntryMoods.Clear();
+            if (entry == null) return false;
 
             _context.JournalEntries.Remove(entry);
             await _context.SaveChangesAsync();
             return true;
         }
 
-        // Mood Tracking 
-        public Task<List<Mood>> GetMoodsAsync()
-        {
-            return _context.Moods
-                .OrderBy(m => m.Name)
-                .ToListAsync();
-        }
-
-        public async Task<(bool ok, string? error)> SetEntryMoodsAsync(
-            int entryId,
-            int primaryMoodId,
-            List<int>? secondaryMoodIds)
-        {
-            if (entryId <= 0) return (false, "Invalid entry.");
-            if (primaryMoodId <= 0) return (false, "Primary mood is required.");
-
-            var cleanSecondary = (secondaryMoodIds ?? new List<int>())
-                .Where(id => id > 0)
-                .Distinct()
-                .ToList();
-
-            if (cleanSecondary.Count > 2)
-                return (false, "You can select up to 2 secondary moods.");
-
-            if (cleanSecondary.Contains(primaryMoodId))
-                return (false, "Primary mood cannot be selected as a secondary mood.");
-
-            // Load entry with existing mood links
-            var entry = await _context.JournalEntries
-                .Include(e => e.EntryMoods)
-                .FirstOrDefaultAsync(e => e.Id == entryId);
-
-            if (entry == null) return (false, "Entry not found.");
-
-            // Validate moods exist & active
-            var moodIdsToCheck = new List<int> { primaryMoodId };
-            moodIdsToCheck.AddRange(cleanSecondary);
-
-            var existingMoodIds = await _context.Moods
-                .Where(m => m.IsActive && moodIdsToCheck.Contains(m.Id))
-                .Select(m => m.Id)
-                .ToListAsync();
-
-            if (!existingMoodIds.Contains(primaryMoodId))
-                return (false, "Selected primary mood does not exist.");
-
-            foreach (var id in cleanSecondary)
-                if (!existingMoodIds.Contains(id))
-                    return (false, "One or more selected secondary moods do not exist.");
-
-            // Replace links
-            entry.EntryMoods.Clear();
-
-            entry.EntryMoods.Add(new EntryMood
-            {
-                EntryId = entry.Id,
-                MoodId = primaryMoodId,
-                MoodRole = "primary"
-            });
-
-            foreach (var moodId in cleanSecondary)
-            {
-                entry.EntryMoods.Add(new EntryMood
-                {
-                    EntryId = entry.Id,
-                    MoodId = moodId,
-                    MoodRole = "secondary"
-                });
-            }
-
-            await _context.SaveChangesAsync();
-            return (true, null);
-        }
-
-        // Helpers
-        private static int CountWords(string? text)
+        private static int CountWords(string text)
         {
             if (string.IsNullOrWhiteSpace(text)) return 0;
-
-            return text.Split(new[] { ' ', '\n', '\r', '\t' },
-                    StringSplitOptions.RemoveEmptyEntries)
-                .Length;
+            return text.Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
         }
     }
 }

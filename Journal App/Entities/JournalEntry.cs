@@ -7,15 +7,22 @@ namespace Journal_App.Entities
     {
         public int Id { get; set; }
 
-        public string EntryDate { get; set; } = string.Empty; // yyyy-MM-dd
+        // yyyy-MM-dd 
+        public string EntryDate { get; set; } = string.Empty;
+
         public string Title { get; set; } = string.Empty;
         public string Content { get; set; } = string.Empty;
 
-        public int WordCount { get; set; } = 0;
+        // markdown only 
+        public string ContentFormat { get; set; } = "markdown";
 
-        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
-        public DateTime UpdatedAt { get; set; } = DateTime.UtcNow;
+        public int WordCount { get; set; }
 
+        public DateTime CreatedAt { get; set; }
+        public DateTime UpdatedAt { get; set; }
+
+        // Navigation
         public ICollection<EntryMood> EntryMoods { get; set; } = new List<EntryMood>();
+        public ICollection<EntryTag> EntryTags { get; set; } = new List<EntryTag>();
     }
 }
