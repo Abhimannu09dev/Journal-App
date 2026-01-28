@@ -13,9 +13,13 @@ namespace Journal_App.Services
             _context = context;
         }
 
+        // Entries
         public Task<List<JournalEntry>> GetEntriesAsync()
         {
+            // include moods so preview/editor can show selected moods
             return _context.JournalEntries
+                .Include(e => e.EntryMoods)
+                    .ThenInclude(em => em.Mood)
                 .OrderByDescending(e => e.EntryDate)
                 .ToListAsync();
         }
@@ -23,6 +27,8 @@ namespace Journal_App.Services
         public Task<JournalEntry?> GetEntryByDateAsync(string entryDateKey)
         {
             return _context.JournalEntries
+                .Include(e => e.EntryMoods)
+                    .ThenInclude(em => em.Mood)
                 .FirstOrDefaultAsync(e => e.EntryDate == entryDateKey);
         }
 
@@ -98,14 +104,93 @@ namespace Journal_App.Services
 
         public async Task<bool> DeleteEntryAsync(int id)
         {
-            var entry = await _context.JournalEntries.FirstOrDefaultAsync(e => e.Id == id);
+            var entry = await _context.JournalEntries
+                .Include(e => e.EntryMoods)
+                .FirstOrDefaultAsync(e => e.Id == id);
+
             if (entry is null) return false;
+            entry.EntryMoods.Clear();
 
             _context.JournalEntries.Remove(entry);
             await _context.SaveChangesAsync();
             return true;
         }
 
+        // Mood Tracking 
+        public Task<List<Mood>> GetMoodsAsync()
+        {
+            return _context.Moods
+                .OrderBy(m => m.Name)
+                .ToListAsync();
+        }
+
+        public async Task<(bool ok, string? error)> SetEntryMoodsAsync(
+            int entryId,
+            int primaryMoodId,
+            List<int>? secondaryMoodIds)
+        {
+            if (entryId <= 0) return (false, "Invalid entry.");
+            if (primaryMoodId <= 0) return (false, "Primary mood is required.");
+
+            var cleanSecondary = (secondaryMoodIds ?? new List<int>())
+                .Where(id => id > 0)
+                .Distinct()
+                .ToList();
+
+            if (cleanSecondary.Count > 2)
+                return (false, "You can select up to 2 secondary moods.");
+
+            if (cleanSecondary.Contains(primaryMoodId))
+                return (false, "Primary mood cannot be selected as a secondary mood.");
+
+            // Load entry with existing mood links
+            var entry = await _context.JournalEntries
+                .Include(e => e.EntryMoods)
+                .FirstOrDefaultAsync(e => e.Id == entryId);
+
+            if (entry == null) return (false, "Entry not found.");
+
+            // Validate moods exist & active
+            var moodIdsToCheck = new List<int> { primaryMoodId };
+            moodIdsToCheck.AddRange(cleanSecondary);
+
+            var existingMoodIds = await _context.Moods
+                .Where(m => m.IsActive && moodIdsToCheck.Contains(m.Id))
+                .Select(m => m.Id)
+                .ToListAsync();
+
+            if (!existingMoodIds.Contains(primaryMoodId))
+                return (false, "Selected primary mood does not exist.");
+
+            foreach (var id in cleanSecondary)
+                if (!existingMoodIds.Contains(id))
+                    return (false, "One or more selected secondary moods do not exist.");
+
+            // Replace links
+            entry.EntryMoods.Clear();
+
+            entry.EntryMoods.Add(new EntryMood
+            {
+                EntryId = entry.Id,
+                MoodId = primaryMoodId,
+                MoodRole = "primary"
+            });
+
+            foreach (var moodId in cleanSecondary)
+            {
+                entry.EntryMoods.Add(new EntryMood
+                {
+                    EntryId = entry.Id,
+                    MoodId = moodId,
+                    MoodRole = "secondary"
+                });
+            }
+
+            await _context.SaveChangesAsync();
+            return (true, null);
+        }
+
+        // Helpers
         private static int CountWords(string? text)
         {
             if (string.IsNullOrWhiteSpace(text)) return 0;
