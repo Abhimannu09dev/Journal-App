@@ -1,0 +1,99 @@
+﻿@page "/streaks"
+@inject IJournalService JournalService
+
+<div class="streak-wrap">
+    <div class="streak-card">
+        <div class="streak-header">
+            <div>
+                <div class="streak-title">Streak Tracking</div>
+                <div class="streak-subtitle">Your consistency summary</div>
+            </div>
+
+            @if (_stats != null)
+            {
+                <div class="streak-badge @(GetStreakBadgeClass(_stats.CurrentStreak))">
+                    @_stats.CurrentStreak day streak
+                </div>
+            }
+        </div>
+
+        @if (_stats == null)
+        {
+            <div class="streak-loading">
+                <div class="spinner"></div>
+                <div>Loading streak stats...</div>
+            </div>
+        }
+        else
+        {
+            <div class="streak-grid">
+                <div class="stat">
+                    <div class="stat-label">Current streak</div>
+                    <div class="stat-value">@_stats.CurrentStreak</div>
+                    <div class="stat-hint">days</div>
+                </div>
+
+                <div class="stat">
+                    <div class="stat-label">Longest streak</div>
+                    <div class="stat-value">@_stats.LongestStreak</div>
+                    <div class="stat-hint">days</div>
+                </div>
+
+                <div class="stat">
+                    <div class="stat-label">First entry</div>
+                    <div class="stat-value small">@(_stats.FirstEntryDate ?? "-")</div>
+                    <div class="stat-hint">yyyy-MM-dd</div>
+                </div>
+
+                <div class="stat">
+                    <div class="stat-label">Last entry</div>
+                    <div class="stat-value small">@(_stats.LastEntryDate ?? "-")</div>
+                    <div class="stat-hint">yyyy-MM-dd</div>
+                </div>
+
+                <div class="stat wide">
+                    <div class="stat-label">Missed days</div>
+                    <div class="stat-value">@_stats.MissedDaysCount</div>
+                    <div class="stat-hint">between first entry and today</div>
+                </div>
+            </div>
+
+            <div class="streak-section">
+                <div class="section-title">Recent missed days (first 10)</div>
+
+                @if (_stats.MissedDaysCount == 0)
+                {
+                    <div class="empty-state">
+                        No missed days in your tracked range.
+                    </div>
+                }
+                else
+                {
+                    <div class="chips">
+                        @foreach (var d in _stats.MissedDays.Take(10))
+                        {
+                            <span class="chip">@d</span>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private Journal_App.Services.StreakStatsDto? _stats;
+
+    protected override async Task OnInitializedAsync()
+    {
+        _stats = await JournalService.GetStreakStatsAsync();
+    }
+
+    private static string GetStreakBadgeClass(int current)
+    {
+        if (current >= 30) return "badge-gold";
+        if (current >= 7) return "badge-green";
+        if (current >= 1) return "badge-blue";
+        return "badge-gray";
+    }
+}
