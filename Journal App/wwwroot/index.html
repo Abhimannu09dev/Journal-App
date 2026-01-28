@@ -6,13 +6,13 @@
     <title>Journal App</title>
     <base href="/" />
     <link rel="stylesheet" href="lib/bootstrap/dist/css/bootstrap.min.css" />
+    <link rel="stylesheet" href="lib/bootstrap-icons/bootstrap-icons.css">
     <link rel="stylesheet" href="app.css" />
-    <link rel="stylesheet" href="Journal App.styles.css" />
+    <link rel="stylesheet" href="Journal_App.styles.css" />
     <link rel="icon" href="data:,">
 </head>
 
 <body>
-
     <div class="status-bar-safe-area"></div>
 
     <div id="app">Loading...</div>
@@ -23,8 +23,10 @@
         <span class="dismiss">🗙</span>
     </div>
 
+    <script src="lib/bootstrap/dist/js/bootstrap.bundle.min.js"></script>
     <script src="_framework/blazor.webview.js" autostart="false"></script>
 
+    <!-- ✅ Theme bridge (must be loaded before Blazor calls it) -->
+    <script src="js/theme.js"></script>
 </body>
-
 </html>
