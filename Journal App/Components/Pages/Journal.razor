@@ -28,8 +28,80 @@
     <div class="mb-3">
         <input class="form-control"
                placeholder="Search by title..."
-               @bind="searchQuery"
-               @bind:event="oninput" />
+               value="@searchQuery"
+               @oninput="OnSearchInput"
+               disabled="@isBusy" />
+    </div>
+
+    <!-- FILTERS -->
+    <div class="card p-3 mb-3">
+        <div class="d-flex justify-content-between align-items-start gap-3">
+            <div>
+                <div class="fw-semibold">Filters</div>
+                <div class="text-secondary small">Mood + tag filters apply on top of title search</div>
+            </div>
+
+            <button class="btn btn-sm btn-outline-secondary"
+                    @onclick="ClearFilters"
+                    disabled="@isBusy">
+                Clear
+            </button>
+        </div>
+
+        <hr />
+
+        <!-- Primary Mood Filter -->
+        <div class="mb-3">
+            <label class="form-label small text-secondary mb-1">Primary Mood</label>
+            <select class="form-select"
+                    value="@primaryMoodFilterId"
+                    @onchange="OnPrimaryMoodFilterChanged"
+                    disabled="@isBusy">
+                <option value="0">All</option>
+                @foreach (var m in allMoods.Where(m => m.IsActive).OrderBy(m => m.Name))
+                {
+                    <option value="@m.Id">@m.Emoji @m.Name</option>
+                }
+            </select>
+        </div>
+
+        <!-- Tag Filters -->
+        <div>
+            <label class="form-label small text-secondary mb-2">Tags (any match)</label>
+
+            <div class="d-flex flex-wrap gap-2 mb-2">
+                @if (selectedTags.Count == 0)
+                {
+                    <span class="text-secondary small">No tag filters selected.</span>
+                }
+                else
+                {
+                    @foreach (var t in selectedTags.OrderBy(x => x))
+                    {
+                        <button type="button"
+                                class="badge rounded-pill bg-primary border-0"
+                                title="Click to remove"
+                                @onclick="() => ToggleTag(t)"
+                                disabled="@isBusy">
+                            @t <span class="ms-1">×</span>
+                        </button>
+                    }
+                }
+            </div>
+
+            <div class="d-flex flex-wrap gap-3">
+                @foreach (var t in allTags.OrderBy(x => x))
+                {
+                    <label class="d-flex align-items-center gap-2 small" style="cursor:pointer;">
+                        <input type="checkbox"
+                               checked="@selectedTags.Contains(t)"
+                               @onchange="() => ToggleTag(t)"
+                               disabled="@isBusy" />
+                        <span>@t</span>
+                    </label>
+                }
+            </div>
+        </div>
     </div>
 
     <!-- STATUS -->
@@ -40,7 +112,7 @@
         </div>
     }
 
-    <!-- CONTENT -->
+    <!-- ENTRIES -->
     @if (isBusy)
     {
         <div class="text-secondary">Loading...</div>
@@ -56,10 +128,10 @@
             {
                 <div class="list-group-item">
                     <div class="d-flex justify-content-between align-items-start gap-3 mt-1">
-
                         <button class="btn btn-link text-start p-0 flex-grow-1"
                                 style="text-decoration:none;"
-                                @onclick="() => OpenPreview(e)">
+                                @onclick="() => OpenPreview(e)"
+                                disabled="@isBusy">
                             <div class="fw-semibold">@e.Title</div>
                             <div class="text-secondary small">@e.EntryDate</div>
                         </button>
@@ -69,12 +141,13 @@
 
                             <div class="d-flex gap-2">
                                 <button class="btn btn-sm btn-outline-primary"
-                                        @onclick="() => OpenPreview(e)">
+                                        @onclick="() => OpenPreview(e)"
+                                        disabled="@isBusy">
                                     Read
                                 </button>
 
                                 <button class="btn btn-sm btn-outline-danger"
-                                        disabled="@(!CanDelete(e))"
+                                        disabled="@(isBusy || !CanDelete(e))"
                                         @onclick="() => DeleteEntryAsync(e)">
                                     Delete
                                 </button>
@@ -98,8 +171,8 @@
 
             <div class="btn-group">
                 <button class="btn btn-outline-secondary"
-                        disabled="@(currentPage <= 1)"
-                        @onclick="PrevPage">
+                        @onclick="PrevPage"
+                        disabled="@(isBusy || currentPage <= 1)">
                     Prev
                 </button>
 
@@ -108,8 +181,8 @@
                 </button>
 
                 <button class="btn btn-outline-secondary"
-                        disabled="@(currentPage >= TotalPages)"
-                        @onclick="NextPage">
+                        @onclick="NextPage"
+                        disabled="@(isBusy || currentPage >= TotalPages)">
                     Next
                 </button>
             </div>
@@ -119,36 +192,25 @@
 
 @code {
     private List<JournalEntry> entries = new();
-    private string searchQuery = "";
 
     private bool isBusy = false;
     private string statusMessage = "";
     private string statusClass = "alert-secondary";
 
+    // Search
+    private string searchQuery = "";
+
+    // Pagination
     private const int PageSize = 10;
     private int currentPage = 1;
 
-    private List<JournalEntry> FilteredEntries =>
-        string.IsNullOrWhiteSpace(searchQuery)
-            ? entries
-            : entries.Where(e =>
-                !string.IsNullOrWhiteSpace(e.Title) &&
-                e.Title.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
-            .ToList();
+    // Mood filter
+    private List<Mood> allMoods = new();
+    private int primaryMoodFilterId = 0; // 0 = all
 
-    private int TotalPages =>
-        Math.Max(1, (int)Math.Ceiling(FilteredEntries.Count / (double)PageSize));
-
-    private IEnumerable<JournalEntry> PagedEntries =>
-        FilteredEntries
-            .Skip((currentPage - 1) * PageSize)
-            .Take(PageSize);
-
-    private int StartItem =>
-        FilteredEntries.Count == 0 ? 0 : ((currentPage - 1) * PageSize) + 1;
-
-    private int EndItem =>
-        Math.Min(currentPage * PageSize, FilteredEntries.Count);
+    // Tag filter
+    private HashSet<string> allTags = new(StringComparer.OrdinalIgnoreCase);
+    private HashSet<string> selectedTags = new(StringComparer.OrdinalIgnoreCase);
 
     protected override async Task OnInitializedAsync()
     {
@@ -160,40 +222,201 @@
         isBusy = true;
         ClearStatus();
 
-        entries = await JournalService.GetEntriesAsync();
-        currentPage = 1;
+        try
+        {
+            // Load entries (already includes moods + tags from service)
+            entries = await JournalService.GetEntriesAsync();
 
-        isBusy = false;
+            // Load moods for filter dropdown
+            allMoods = await JournalService.GetMoodsAsync();
+
+            // Build tag universe from existing entry tags
+            allTags = entries
+                .SelectMany(e => e.EntryTags)
+                .Select(et => et.Tag?.Name)
+                .Where(n => !string.IsNullOrWhiteSpace(n))!
+                .Select(n => n!)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            currentPage = 1;
+        }
+        catch (Exception ex)
+        {
+            SetStatus("Failed to load entries. " + ex.Message, "alert-danger");
+        }
+        finally
+        {
+            isBusy = false;
+        }
     }
 
-    private void PrevPage() => currentPage--;
-    private void NextPage() => currentPage++;
+    // ---------- Filters + Search ----------
+    private List<JournalEntry> FilteredEntries
+    {
+        get
+        {
+            IEnumerable<JournalEntry> q = entries;
 
+            // Title search only
+            if (!string.IsNullOrWhiteSpace(searchQuery))
+            {
+                var s = searchQuery.Trim();
+                q = q.Where(e => !string.IsNullOrWhiteSpace(e.Title) &&
+                                 e.Title.Contains(s, StringComparison.OrdinalIgnoreCase));
+            }
+
+            // Primary mood filter
+            if (primaryMoodFilterId > 0)
+            {
+                q = q.Where(e =>
+                    e.EntryMoods.Any(em => em.MoodRole == "primary" && em.MoodId == primaryMoodFilterId));
+            }
+
+            // Tags filter (ANY match)
+            if (selectedTags.Count > 0)
+            {
+                q = q.Where(e =>
+                {
+                    var tags = e.EntryTags
+                        .Select(et => et.Tag?.Name)
+                        .Where(n => !string.IsNullOrWhiteSpace(n))!
+                        .Select(n => n!);
+
+                    return tags.Any(t => selectedTags.Contains(t));
+                });
+            }
+
+            // Keep newest first
+            q = q.OrderByDescending(e => e.EntryDate);
+
+            return q.ToList();
+        }
+    }
+
+    private int TotalPages =>
+        Math.Max(1, (int)Math.Ceiling(FilteredEntries.Count / (double)PageSize));
+
+    private IEnumerable<JournalEntry> PagedEntries =>
+        FilteredEntries.Skip((currentPage - 1) * PageSize).Take(PageSize);
+
+    private int StartItem =>
+        FilteredEntries.Count == 0 ? 0 : ((currentPage - 1) * PageSize) + 1;
+
+    private int EndItem =>
+        Math.Min(currentPage * PageSize, FilteredEntries.Count);
+
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        searchQuery = e.Value?.ToString() ?? "";
+        currentPage = 1;
+    }
+
+    private void OnPrimaryMoodFilterChanged(ChangeEventArgs e)
+    {
+        if (int.TryParse(e.Value?.ToString(), out var id))
+        {
+            primaryMoodFilterId = id;
+            currentPage = 1;
+        }
+    }
+
+    private void ToggleTag(string tag)
+    {
+        if (selectedTags.Contains(tag))
+            selectedTags.Remove(tag);
+        else
+            selectedTags.Add(tag);
+
+        currentPage = 1;
+    }
+
+    private void ClearFilters()
+    {
+        searchQuery = "";
+        primaryMoodFilterId = 0;
+        selectedTags.Clear();
+        currentPage = 1;
+    }
+
+    // ---------- Nav ----------
     private void GoToToday()
     {
-        var key = DateTime.Today.ToString("yyyy-MM-dd");
-        Nav.NavigateTo($"/journal/entry/{key}");
+        var todayKey = DateTime.Today.ToString("yyyy-MM-dd");
+        Nav.NavigateTo($"/journal/entry/{todayKey}");
     }
 
     private void OpenPreview(JournalEntry entry)
     {
+        if (entry == null || string.IsNullOrWhiteSpace(entry.EntryDate))
+            return;
+
         Nav.NavigateTo($"/journal/preview/{entry.EntryDate}");
     }
 
+    // ---------- Delete (today only) ----------
     private bool CanDelete(JournalEntry e)
     {
         var todayKey = DateTime.Today.ToString("yyyy-MM-dd");
-        return e.EntryDate == todayKey;
+        return string.Equals(e.EntryDate, todayKey, StringComparison.Ordinal);
     }
 
     private async Task DeleteEntryAsync(JournalEntry entry)
     {
-        var confirm = await JS.InvokeAsync<bool>("confirm", "Delete this entry?");
+        if (entry == null) return;
+
+        var confirm = await JS.InvokeAsync<bool>("confirm", "Delete this entry? This cannot be undone.");
         if (!confirm) return;
 
-        await JournalService.DeleteEntryAsync(entry.Id);
-        entries = await JournalService.GetEntriesAsync();
-        currentPage = 1;
+        isBusy = true;
+        ClearStatus();
+
+        try
+        {
+            var ok = await JournalService.DeleteEntryAsync(entry.Id);
+            if (!ok)
+            {
+                SetStatus("Delete failed.", "alert-danger");
+                return;
+            }
+
+            SetStatus("Deleted", "alert-success");
+            entries = await JournalService.GetEntriesAsync();
+
+            // rebuild tag universe (in case deleting removed last tag)
+            allTags = entries
+                .SelectMany(e => e.EntryTags)
+                .Select(et => et.Tag?.Name)
+                .Where(n => !string.IsNullOrWhiteSpace(n))!
+                .Select(n => n!)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+            currentPage = 1;
+        }
+        catch (Exception ex)
+        {
+            SetStatus("Delete failed. " + ex.Message, "alert-danger");
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private void PrevPage()
+    {
+        if (currentPage > 1) currentPage--;
+    }
+
+    private void NextPage()
+    {
+        if (currentPage < TotalPages) currentPage++;
+    }
+
+    // Status 
+    private void SetStatus(string message, string cssClass)
+    {
+        statusMessage = message;
+        statusClass = cssClass;
     }
 
     private void ClearStatus()
