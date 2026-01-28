@@ -7,6 +7,7 @@
 
 <div class="container py-4" style="max-width: 900px;">
 
+    <!-- HEADER -->
     <div class="d-flex justify-content-between align-items-center mb-3">
         <div>
             <h2 class="mb-0">Journal</h2>
@@ -14,16 +15,24 @@
         </div>
 
         <div class="d-flex gap-2">
-            <button class="btn btn-outline-secondary" @onclick="ReloadAsync" disabled="@isBusy">Reload</button>
-            <button class="btn btn-primary" @onclick="GoToToday" disabled="@isBusy">+ Write Today</button>
+            <button class="btn btn-outline-secondary" @onclick="ReloadAsync" disabled="@isBusy">
+                Reload
+            </button>
+            <button class="btn btn-primary" @onclick="GoToToday" disabled="@isBusy">
+                + Write Today
+            </button>
         </div>
     </div>
 
+    <!-- STATUS -->
     @if (!string.IsNullOrWhiteSpace(statusMessage))
     {
-        <div class="alert @statusClass py-2" role="alert">@statusMessage</div>
+        <div class="alert @statusClass py-2" role="alert">
+            @statusMessage
+        </div>
     }
 
+    <!-- LIST -->
     @if (isBusy)
     {
         <div class="text-secondary">Loading...</div>
@@ -38,28 +47,48 @@
             @foreach (var e in entries)
             {
                 <div class="list-group-item">
-                    <div class="d-flex justify-content-between align-items-start gap-3">
+                    <div class="d-flex justify-content-between align-items-start gap-3 mt-1">
+
+                        <!-- Left: clickable area opens PREVIEW -->
                         <button class="btn btn-link text-start p-0 flex-grow-1"
                                 style="text-decoration:none;"
-                                @onclick="() => OpenEntry(e.EntryDate)"
+                                @onclick="() => OpenPreview(e)"
                                 disabled="@isBusy">
                             <div class="fw-semibold">@e.Title</div>
                             <div class="text-secondary small">@e.EntryDate</div>
-                            <div class="text-secondary small mt-1">@e.WordCount words</div>
+
+                            @if (!string.IsNullOrWhiteSpace(e.Content))
+                            {
+                                <div class="text-secondary mt-2">
+                                    @Snippet(e.Content, 140)
+                                </div>
+                            }
                         </button>
 
+                        <!-- Right: actions -->
                         <div class="d-flex flex-column align-items-end gap-2" style="min-width: 160px;">
-                            <button class="btn btn-sm btn-outline-primary"
-                                    @onclick="() => OpenEntry(e.EntryDate)"
-                                    disabled="@isBusy">
-                                Open
-                            </button>
+                            <div class="text-secondary small">@e.WordCount words</div>
 
-                            <button class="btn btn-sm btn-outline-danger"
-                                    @onclick="() => DeleteEntryAsync(e)"
-                                    disabled="@isBusy || !CanDelete(e)">
-                                Delete (Today only)
-                            </button>
+                            <div class="d-flex gap-2">
+                                <button class="btn btn-sm btn-outline-primary"
+                                        @onclick="() => OpenPreview(e)"
+                                        disabled="@isBusy">
+                                    Read
+                                </button>
+
+                                <button class="btn btn-sm btn-outline-danger"
+                                        @onclick="() => DeleteEntryAsync(e)"
+                                        disabled="@(isBusy || !CanDelete(e))">
+                                    Delete
+                                </button>
+                            </div>
+
+                            @if (!CanDelete(e))
+                            {
+                                <div class="text-secondary small">
+                                    (Today only)
+                                </div>
+                            }
                         </div>
                     </div>
                 </div>
@@ -105,22 +134,31 @@
         Nav.NavigateTo($"/journal/entry/{todayKey}");
     }
 
-    private void OpenEntry(string dateKey)
+    private void OpenPreview(JournalEntry entry)
     {
-        Nav.NavigateTo($"/journal/entry/{dateKey}");
+        if (entry == null || string.IsNullOrWhiteSpace(entry.EntryDate))
+            return;
+
+        Nav.NavigateTo($"/journal/preview/{entry.EntryDate}");
     }
 
+    // only allow deleting today's entry
     private bool CanDelete(JournalEntry e)
     {
+        if (e == null || string.IsNullOrWhiteSpace(e.EntryDate)) return false;
         var todayKey = DateTime.Today.ToString("yyyy-MM-dd");
         return string.Equals(e.EntryDate, todayKey, StringComparison.Ordinal);
     }
 
     private async Task DeleteEntryAsync(JournalEntry entry)
     {
-        if (entry is null) return;
+        if (entry == null) return;
 
-        var confirm = await JS.InvokeAsync<bool>("confirm", "Delete this entry? This cannot be undone.");
+        var confirm = await JS.InvokeAsync<bool>(
+            "confirm",
+            "Delete this entry? This cannot be undone."
+        );
+
         if (!confirm) return;
 
         isBusy = true;
@@ -129,13 +167,14 @@
         try
         {
             var ok = await JournalService.DeleteEntryAsync(entry.Id);
+
             if (!ok)
             {
                 SetStatus("Delete failed.", "alert-danger");
                 return;
             }
 
-            SetStatus("Deleted.", "alert-success");
+            SetStatus("Deleted", "alert-success");
             entries = await JournalService.GetEntriesAsync();
         }
         catch (Exception ex)
@@ -146,6 +185,13 @@
         {
             isBusy = false;
         }
+    }
+
+    private static string Snippet(string text, int max)
+    {
+        if (string.IsNullOrWhiteSpace(text)) return "";
+        text = text.Replace("\r", " ").Replace("\n", " ").Trim();
+        return text.Length <= max ? text : text.Substring(0, max) + "...";
     }
 
     private void SetStatus(string message, string cssClass)
