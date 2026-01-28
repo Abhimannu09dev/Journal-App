@@ -24,6 +24,14 @@
         </div>
     </div>
 
+    <!-- SEARCH -->
+    <div class="mb-3">
+        <input class="form-control"
+               placeholder="Search by title..."
+               @bind="searchQuery"
+               @bind:event="oninput" />
+    </div>
+
     <!-- STATUS -->
     @if (!string.IsNullOrWhiteSpace(statusMessage))
     {
@@ -32,12 +40,12 @@
         </div>
     }
 
-    <!-- ENTRIES -->
+    <!-- CONTENT -->
     @if (isBusy)
     {
         <div class="text-secondary">Loading...</div>
     }
-    else if (entries.Count == 0)
+    else if (FilteredEntries.Count == 0)
     {
         <div class="text-secondary">No entries found.</div>
     }
@@ -49,36 +57,25 @@
                 <div class="list-group-item">
                     <div class="d-flex justify-content-between align-items-start gap-3 mt-1">
 
-                        <!-- Left: Open Preview -->
                         <button class="btn btn-link text-start p-0 flex-grow-1"
                                 style="text-decoration:none;"
-                                @onclick="() => OpenPreview(e)"
-                                disabled="@isBusy">
+                                @onclick="() => OpenPreview(e)">
                             <div class="fw-semibold">@e.Title</div>
                             <div class="text-secondary small">@e.EntryDate</div>
-
-                            @if (!string.IsNullOrWhiteSpace(e.Content))
-                            {
-                                <div class="text-secondary mt-2">
-                                    @Snippet(e.Content, 140)
-                                </div>
-                            }
                         </button>
 
-                        <!-- Right: actions -->
                         <div class="d-flex flex-column align-items-end gap-2" style="min-width: 160px;">
                             <div class="text-secondary small">@e.WordCount words</div>
 
                             <div class="d-flex gap-2">
                                 <button class="btn btn-sm btn-outline-primary"
-                                        @onclick="() => OpenPreview(e)"
-                                        disabled="@isBusy">
+                                        @onclick="() => OpenPreview(e)">
                                     Read
                                 </button>
 
                                 <button class="btn btn-sm btn-outline-danger"
-                                        @onclick="() => DeleteEntryAsync(e)"
-                                        disabled="@(isBusy || !CanDelete(e))">
+                                        disabled="@(!CanDelete(e))"
+                                        @onclick="() => DeleteEntryAsync(e)">
                                     Delete
                                 </button>
                             </div>
@@ -96,13 +93,13 @@
         <!-- PAGINATION -->
         <div class="d-flex justify-content-between align-items-center mt-3">
             <div class="text-secondary small">
-                Showing @StartItem - @EndItem of @entries.Count
+                Showing @StartItem - @EndItem of @FilteredEntries.Count
             </div>
 
             <div class="btn-group">
                 <button class="btn btn-outline-secondary"
-                        @onclick="PrevPage"
-                        disabled="@(isBusy || currentPage <= 1)">
+                        disabled="@(currentPage <= 1)"
+                        @onclick="PrevPage">
                     Prev
                 </button>
 
@@ -111,8 +108,8 @@
                 </button>
 
                 <button class="btn btn-outline-secondary"
-                        @onclick="NextPage"
-                        disabled="@(isBusy || currentPage >= TotalPages)">
+                        disabled="@(currentPage >= TotalPages)"
+                        @onclick="NextPage">
                     Next
                 </button>
             </div>
@@ -122,22 +119,36 @@
 
 @code {
     private List<JournalEntry> entries = new();
+    private string searchQuery = "";
 
     private bool isBusy = false;
     private string statusMessage = "";
     private string statusClass = "alert-secondary";
 
-    // Pagination
     private const int PageSize = 10;
     private int currentPage = 1;
 
-    private int TotalPages => Math.Max(1, (int)Math.Ceiling(entries.Count / (double)PageSize));
+    private List<JournalEntry> FilteredEntries =>
+        string.IsNullOrWhiteSpace(searchQuery)
+            ? entries
+            : entries.Where(e =>
+                !string.IsNullOrWhiteSpace(e.Title) &&
+                e.Title.Contains(searchQuery, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+    private int TotalPages =>
+        Math.Max(1, (int)Math.Ceiling(FilteredEntries.Count / (double)PageSize));
 
     private IEnumerable<JournalEntry> PagedEntries =>
-        entries.Skip((currentPage - 1) * PageSize).Take(PageSize);
+        FilteredEntries
+            .Skip((currentPage - 1) * PageSize)
+            .Take(PageSize);
 
-    private int StartItem => entries.Count == 0 ? 0 : ((currentPage - 1) * PageSize) + 1;
-    private int EndItem => Math.Min(currentPage * PageSize, entries.Count);
+    private int StartItem =>
+        FilteredEntries.Count == 0 ? 0 : ((currentPage - 1) * PageSize) + 1;
+
+    private int EndItem =>
+        Math.Min(currentPage * PageSize, FilteredEntries.Count);
 
     protected override async Task OnInitializedAsync()
     {
@@ -149,104 +160,40 @@
         isBusy = true;
         ClearStatus();
 
-        try
-        {
-            entries = await JournalService.GetEntriesAsync();
+        entries = await JournalService.GetEntriesAsync();
+        currentPage = 1;
 
-            // clamp page
-            if (currentPage > TotalPages) currentPage = TotalPages;
-            if (currentPage < 1) currentPage = 1;
-        }
-        catch (Exception ex)
-        {
-            SetStatus("Failed to load entries. " + ex.Message, "alert-danger");
-        }
-        finally
-        {
-            isBusy = false;
-        }
+        isBusy = false;
     }
 
-    private void PrevPage()
-    {
-        if (currentPage > 1) currentPage--;
-    }
-
-    private void NextPage()
-    {
-        if (currentPage < TotalPages) currentPage++;
-    }
+    private void PrevPage() => currentPage--;
+    private void NextPage() => currentPage++;
 
     private void GoToToday()
     {
-        var todayKey = DateTime.Today.ToString("yyyy-MM-dd");
-        Nav.NavigateTo($"/journal/entry/{todayKey}");
+        var key = DateTime.Today.ToString("yyyy-MM-dd");
+        Nav.NavigateTo($"/journal/entry/{key}");
     }
 
     private void OpenPreview(JournalEntry entry)
     {
-        if (entry == null || string.IsNullOrWhiteSpace(entry.EntryDate))
-            return;
-
         Nav.NavigateTo($"/journal/preview/{entry.EntryDate}");
     }
 
     private bool CanDelete(JournalEntry e)
     {
-        if (e == null || string.IsNullOrWhiteSpace(e.EntryDate)) return false;
         var todayKey = DateTime.Today.ToString("yyyy-MM-dd");
-        return string.Equals(e.EntryDate, todayKey, StringComparison.Ordinal);
+        return e.EntryDate == todayKey;
     }
 
     private async Task DeleteEntryAsync(JournalEntry entry)
     {
-        if (entry == null) return;
-
-        var confirm = await JS.InvokeAsync<bool>("confirm", "Delete this entry? This cannot be undone.");
+        var confirm = await JS.InvokeAsync<bool>("confirm", "Delete this entry?");
         if (!confirm) return;
 
-        isBusy = true;
-        ClearStatus();
-
-        try
-        {
-            var ok = await JournalService.DeleteEntryAsync(entry.Id);
-
-            if (!ok)
-            {
-                SetStatus("Delete failed.", "alert-danger");
-                return;
-            }
-
-            SetStatus("Deleted", "alert-success");
-
-            entries = await JournalService.GetEntriesAsync();
-
-            // clamp page
-            if (currentPage > TotalPages) currentPage = TotalPages;
-            if (currentPage < 1) currentPage = 1;
-        }
-        catch (Exception ex)
-        {
-            SetStatus("Delete failed. " + ex.Message, "alert-danger");
-        }
-        finally
-        {
-            isBusy = false;
-        }
-    }
-
-    private static string Snippet(string text, int max)
-    {
-        if (string.IsNullOrWhiteSpace(text)) return "";
-        text = text.Replace("\r", " ").Replace("\n", " ").Trim();
-        return text.Length <= max ? text : text.Substring(0, max) + "...";
-    }
-
-    private void SetStatus(string message, string cssClass)
-    {
-        statusMessage = message;
-        statusClass = cssClass;
+        await JournalService.DeleteEntryAsync(entry.Id);
+        entries = await JournalService.GetEntriesAsync();
+        currentPage = 1;
     }
 
     private void ClearStatus()
