@@ -1,392 +1,75 @@
 ﻿@page "/journal/entry/{dateKey}"
-@using System.Globalization
 @using Journal_App.Entities
 @using Journal_App.Services
 @inject IJournalService JournalService
 @inject NavigationManager Nav
-@inject IJSRuntime JS
 
-<div class="d-flex flex-column align-items-center justify-content-center vh-100 p-3">
-    <div class="bg-white rounded-4 shadow p-4 my-4 w-100" style="max-width: 800px; min-height: 520px;">
+<h3>Journal Entry</h3>
 
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <div>
-                <p class="h3 mb-1">@pageTitle</p>
-                <p class="text-secondary mb-0">@dateDisplay</p>
-            </div>
+<input class="form-control mb-2"
+       placeholder="Title"
+       @bind="model.Title" />
 
-            <button class="btn btn-outline-secondary" @onclick="GoBack" disabled="@isBusy">
-                Back
-            </button>
-        </div>
+<textarea class="form-control mb-2"
+          rows="8"
+          placeholder="Markdown content..."
+          @bind="model.Content"></textarea>
 
-        @if (!string.IsNullOrWhiteSpace(statusMessage))
-        {
-            <div class="alert @statusClass py-2" role="alert">@statusMessage</div>
-        }
-
-        <div class="mb-3">
-            <label class="form-label text-secondary">Title</label>
-            <input class="form-control"
-                   placeholder="Give this day a title..."
-                   @bind="model.Title"
-                   disabled="@isBusy" />
-        </div>
-
-        <!-- Mood Tracking (Feature 3) -->
-        <div class="card p-3 mb-3">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <div>
-                    <div class="fw-semibold">Mood Tracking</div>
-                    <div class="text-secondary small">Primary mood is required. Choose up to 2 secondary moods.</div>
-                </div>
-
-                <button class="btn btn-sm btn-outline-secondary"
-                        @onclick="ClearMoods"
-                        disabled="@isBusy">
-                    Clear
-                </button>
-            </div>
-
-            <!-- Primary -->
-            <div class="mb-2">
-                <label class="form-label small text-secondary mb-1">Primary Mood (Required)</label>
-                <select class="form-select"
-                        value="@primaryMoodId"
-                        @onchange="OnPrimaryMoodChanged"
-                        disabled="@isBusy">
-                    <option value="0">-- Select primary mood --</option>
-                    @foreach (var mood in allMoods.Where(m => m.IsActive).OrderBy(m => m.Name))
-                    {
-                        <option value="@mood.Id">@mood.Emoji @mood.Name</option>
-                    }
-                </select>
-            </div>
-
-            <!-- Secondary -->
-            <div>
-                <label class="form-label small text-secondary mb-1">Secondary Moods (Up to 2)</label>
-
-                <div class="d-flex flex-wrap gap-3">
-                    @foreach (var mood in allMoods.Where(m => m.IsActive).OrderBy(m => m.Name))
-                    {
-                        var isChecked = secondaryMoodIds.Contains(mood.Id);
-
-                        var disableCheckbox =
-                        isBusy ||
-                        mood.Id == primaryMoodId ||
-                        (!isChecked && secondaryMoodIds.Count >= 2);
-
-                        <label class="d-flex align-items-center gap-2 small" style="cursor:pointer;">
-                            <input type="checkbox"
-                                   checked="@isChecked"
-                                   @onchange="() => ToggleSecondaryMood(mood.Id)"
-                                   disabled="@disableCheckbox" />
-                            <span>@mood.Emoji @mood.Name</span>
-                        </label>
-                    }
-                </div>
-
-                <div class="text-secondary small mt-2">
-                    Selected: @secondaryMoodIds.Count / 2
-                </div>
-            </div>
-        </div>
-
-        <div class="mb-3">
-            <label class="form-label text-secondary">Content</label>
-            <textarea class="form-control"
-                      rows="10"
-                      placeholder="Write your entry..."
-                      @bind="model.Content"
-                      disabled="@isBusy"></textarea>
-        </div>
-
-        <div class="d-flex gap-2">
-            <button class="btn btn-primary flex-grow-1"
-                    style="font-size: 1.1em;"
-                    @onclick="SaveAsync"
-                    disabled="@isBusy">
-                @(isExistingEntry ? "Update Entry" : "Save Entry")
-            </button>
-
-            @if (isExistingEntry)
-            {
-                <button class="btn btn-outline-danger"
-                        @onclick="DeleteAsync"
-                        disabled="@isBusy || !canDelete">
-                    Delete
-                </button>
-            }
-        </div>
-
-        @if (!canDelete && isExistingEntry)
-        {
-            <div class="text-secondary small mt-2">
-                Past entries are locked (delete allowed only for today).
-            </div>
-        }
-    </div>
+<div class="mb-2">
+    <label class="form-label">Tags (comma separated)</label>
+    <input class="form-control"
+           placeholder="Work, Health, Reflection"
+           @bind="tagsInput" />
 </div>
+
+<button class="btn btn-primary" @onclick="SaveAsync">
+    Save
+</button>
 
 @code {
     [Parameter] public string dateKey { get; set; } = "";
 
     private JournalEntry model = new();
-    private bool isExistingEntry = false;
-    private bool isBusy = false;
+    private string tagsInput = "";
 
-    private DateTime selectedDate;
-    private string selectedDateKey = "";
-    private string dateDisplay = "";
-    private string pageTitle = "Journal Entry";
-
-    private bool canDelete = false;
-
-    private string statusMessage = "";
-    private string statusClass = "alert-secondary";
-
-    // Mood state
-    private List<Mood> allMoods = new();
-    private int primaryMoodId = 0;
-    private HashSet<int> secondaryMoodIds = new();
-
-    protected override async Task OnParametersSetAsync()
+    protected override async Task OnInitializedAsync()
     {
-        if (!TryParseDateKey(dateKey, out selectedDate))
+        var entry = await JournalService.GetEntryByDateAsync(dateKey);
+        if (entry != null)
         {
-            SetStatus("Invalid date format. Use yyyy-MM-dd.", "alert-danger");
-            return;
-        }
-
-        selectedDateKey = selectedDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        dateDisplay = selectedDate.ToString("dddd, MMMM dd, yyyy", CultureInfo.InvariantCulture);
-
-        var todayKey = DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
-        pageTitle = (selectedDateKey == todayKey) ? "Today’s Journal" : "Journal Entry";
-        canDelete = (selectedDateKey == todayKey);
-
-        // load moods first (needed for UI)
-        allMoods = await JournalService.GetMoodsAsync();
-
-        await LoadEntryAsync();
-    }
-
-    private async Task LoadEntryAsync()
-    {
-        isBusy = true;
-        ClearStatus();
-
-        try
-        {
-            var entry = await JournalService.GetEntryByDateAsync(selectedDateKey);
-
-            if (entry is null)
-            {
-                isExistingEntry = false;
-                model = new JournalEntry { Title = "", Content = "" };
-
-                primaryMoodId = 0;
-                secondaryMoodIds.Clear();
-            }
-            else
-            {
-                isExistingEntry = true;
-                model = entry;
-
-                // Sync mood UI selection from DB
-                var primary = model.EntryMoods.FirstOrDefault(em => em.MoodRole == "primary");
-                primaryMoodId = primary?.MoodId ?? 0;
-
-                secondaryMoodIds = model.EntryMoods
-                    .Where(em => em.MoodRole == "secondary")
-                    .Select(em => em.MoodId)
-                    .ToHashSet();
-
-                // safety
-                secondaryMoodIds.Remove(primaryMoodId);
-                if (secondaryMoodIds.Count > 2)
-                    secondaryMoodIds = secondaryMoodIds.Take(2).ToHashSet();
-            }
-        }
-        catch (Exception ex)
-        {
-            SetStatus("Failed to load entry. " + ex.Message, "alert-danger");
-        }
-        finally
-        {
-            isBusy = false;
+            model = entry;
+            tagsInput = string.Join(",",
+                entry.EntryTags.Select(t => t.Tag!.Name));
         }
     }
 
     private async Task SaveAsync()
     {
-        isBusy = true;
-        ClearStatus();
-
-        try
+        if (model.Id == 0)
         {
-            if (string.IsNullOrWhiteSpace(model.Title))
-            {
-                SetStatus("Title is required.", "alert-warning");
-                return;
-            }
+            var res = await JournalService.CreateEntryAsync(
+                DateTime.Parse(dateKey),
+                model.Title,
+                model.Content,
+                "markdown");
 
-            if (string.IsNullOrWhiteSpace(model.Content))
-            {
-                SetStatus("Content is required.", "alert-warning");
-                return;
-            }
+            if (!res.ok) return;
 
-            // Mood required
-            if (primaryMoodId <= 0)
-            {
-                SetStatus("Primary mood is required.", "alert-warning");
-                return;
-            }
-
-            (bool ok, string? error) result;
-
-            if (!isExistingEntry)
-            {
-                result = await JournalService.CreateEntryAsync(selectedDate, model.Title, model.Content);
-                if (!result.ok)
-                {
-                    SetStatus(result.error ?? "Create failed.", "alert-warning");
-                    return;
-                }
-
-                // Reload to get the created entry + its Id
-                await LoadEntryAsync();
-            }
-            else
-            {
-                result = await JournalService.UpdateEntryAsync(model.Id, model.Title, model.Content);
-                if (!result.ok)
-                {
-                    SetStatus(result.error ?? "Update failed.", "alert-danger");
-                    return;
-                }
-            }
-
-            // Save moods after entry exists (we need entryId)
-            var moodResult = await JournalService.SetEntryMoodsAsync(
+            model = await JournalService.GetEntryByDateAsync(dateKey) ?? model;
+        }
+        else
+        {
+            await JournalService.UpdateEntryAsync(
                 model.Id,
-                primaryMoodId,
-                secondaryMoodIds.ToList()
-            );
-
-            if (!moodResult.ok)
-            {
-                SetStatus(moodResult.error ?? "Mood save failed.", "alert-warning");
-                return;
-            }
-
-            await LoadEntryAsync();
-            SetStatus(isExistingEntry ? "Updated" : "Saved", "alert-success");
-        }
-        catch (Exception ex)
-        {
-            SetStatus("Save failed. " + ex.Message, "alert-danger");
-        }
-        finally
-        {
-            isBusy = false;
-        }
-    }
-
-    private async Task DeleteAsync()
-    {
-        if (!canDelete)
-        {
-            SetStatus("Delete is allowed only for today's entry.", "alert-warning");
-            return;
+                model.Title,
+                model.Content,
+                "markdown");
         }
 
-        var confirm = await JS.InvokeAsync<bool>("confirm", "Delete this entry? This cannot be undone.");
-        if (!confirm) return;
+        var tags = tagsInput.Split(',')
+            .Select(t => t.Trim())
+            .ToList();
 
-        isBusy = true;
-        ClearStatus();
-
-        try
-        {
-            var ok = await JournalService.DeleteEntryAsync(model.Id);
-            if (!ok)
-            {
-                SetStatus("Delete failed.", "alert-danger");
-                return;
-            }
-
-            isExistingEntry = false;
-            model = new JournalEntry();
-            primaryMoodId = 0;
-            secondaryMoodIds.Clear();
-
-            SetStatus("Deleted", "alert-success");
-        }
-        catch (Exception ex)
-        {
-            SetStatus("Delete failed. " + ex.Message, "alert-danger");
-        }
-        finally
-        {
-            isBusy = false;
-        }
-    }
-
-    private void GoBack() => Nav.NavigateTo("/journal");
-
-    // Mood helpers
-    private void ToggleSecondaryMood(int moodId)
-    {
-        if (secondaryMoodIds.Contains(moodId))
-        {
-            secondaryMoodIds.Remove(moodId);
-            return;
-        }
-
-        if (moodId == primaryMoodId) return;
-        if (secondaryMoodIds.Count >= 2) return;
-
-        secondaryMoodIds.Add(moodId);
-    }
-
-    private void ClearMoods()
-    {
-        primaryMoodId = 0;
-        secondaryMoodIds.Clear();
-    }
-
-    private void OnPrimaryMoodChanged(ChangeEventArgs e)
-    {
-        if (int.TryParse(e.Value?.ToString(), out var newId))
-        {
-            primaryMoodId = newId;
-            secondaryMoodIds.Remove(primaryMoodId);
-        }
-    }
-
-    private static bool TryParseDateKey(string? key, out DateTime date)
-    {
-        return DateTime.TryParseExact(
-            key ?? "",
-            "yyyy-MM-dd",
-            CultureInfo.InvariantCulture,
-            DateTimeStyles.None,
-            out date
-        );
-    }
-
-    private void SetStatus(string message, string cssClass)
-    {
-        statusMessage = message;
-        statusClass = cssClass;
-    }
-
-    private void ClearStatus()
-    {
-        statusMessage = "";
-        statusClass = "alert-secondary";
+        await JournalService.SetEntryTagsAsync(model.Id, tags);
     }
 }
