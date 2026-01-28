@@ -2,6 +2,7 @@
 @using Journal_App.Entities
 @using Journal_App.Services
 @inject IJournalService JournalService
+@inject AuthStateService AuthState
 @inject NavigationManager Nav
 @inject IJSRuntime JS
 
@@ -24,86 +25,6 @@
         </div>
     </div>
 
-    <!-- SEARCH -->
-    <div class="mb-3">
-        <input class="form-control"
-               placeholder="Search by title..."
-               value="@searchQuery"
-               @oninput="OnSearchInput"
-               disabled="@isBusy" />
-    </div>
-
-    <!-- FILTERS -->
-    <div class="card p-3 mb-3">
-        <div class="d-flex justify-content-between align-items-start gap-3">
-            <div>
-                <div class="fw-semibold">Filters</div>
-                <div class="text-secondary small">Mood + tag filters apply on top of title search</div>
-            </div>
-
-            <button class="btn btn-sm btn-outline-secondary"
-                    @onclick="ClearFilters"
-                    disabled="@isBusy">
-                Clear
-            </button>
-        </div>
-
-        <hr />
-
-        <!-- Primary Mood Filter -->
-        <div class="mb-3">
-            <label class="form-label small text-secondary mb-1">Primary Mood</label>
-            <select class="form-select"
-                    value="@primaryMoodFilterId"
-                    @onchange="OnPrimaryMoodFilterChanged"
-                    disabled="@isBusy">
-                <option value="0">All</option>
-                @foreach (var m in allMoods.Where(m => m.IsActive).OrderBy(m => m.Name))
-                {
-                    <option value="@m.Id">@m.Emoji @m.Name</option>
-                }
-            </select>
-        </div>
-
-        <!-- Tag Filters -->
-        <div>
-            <label class="form-label small text-secondary mb-2">Tags (any match)</label>
-
-            <div class="d-flex flex-wrap gap-2 mb-2">
-                @if (selectedTags.Count == 0)
-                {
-                    <span class="text-secondary small">No tag filters selected.</span>
-                }
-                else
-                {
-                    @foreach (var t in selectedTags.OrderBy(x => x))
-                    {
-                        <button type="button"
-                                class="badge rounded-pill bg-primary border-0"
-                                title="Click to remove"
-                                @onclick="() => ToggleTag(t)"
-                                disabled="@isBusy">
-                            @t <span class="ms-1">×</span>
-                        </button>
-                    }
-                }
-            </div>
-
-            <div class="d-flex flex-wrap gap-3">
-                @foreach (var t in allTags.OrderBy(x => x))
-                {
-                    <label class="d-flex align-items-center gap-2 small" style="cursor:pointer;">
-                        <input type="checkbox"
-                               checked="@selectedTags.Contains(t)"
-                               @onchange="() => ToggleTag(t)"
-                               disabled="@isBusy" />
-                        <span>@t</span>
-                    </label>
-                }
-            </div>
-        </div>
-    </div>
-
     <!-- STATUS -->
     @if (!string.IsNullOrWhiteSpace(statusMessage))
     {
@@ -112,12 +33,95 @@
         </div>
     }
 
+    <!-- SEARCH + SORT -->
+    <div class="row g-2 mb-3">
+        <div class="col-12 col-md-8">
+            <input class="form-control"
+                   placeholder="Search title or content..."
+                   value="@searchText"
+                   @oninput="OnSearchInput"
+                   disabled="@isBusy" />
+        </div>
+
+        <div class="col-12 col-md-4">
+            <select class="form-select"
+                    value="@sortMode"
+                    @onchange="OnSortChanged"
+                    disabled="@isBusy">
+                <option value="newest">Sort: Newest first</option>
+                <option value="oldest">Sort: Oldest first</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- TAG FILTER -->
+    <div class="card p-3 mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
+            <div>
+                <div class="fw-semibold">Filter by tags</div>
+                <div class="text-secondary small">Entries update instantly</div>
+            </div>
+
+            <div class="d-flex gap-2 align-items-center">
+                <select class="form-select form-select-sm"
+                        style="max-width: 170px;"
+                        value="@tagFilterMode"
+                        @onchange="OnTagModeChanged"
+                        disabled="@isBusy">
+                    <option value="any">Any tag (OR)</option>
+                    <option value="all">All tags (AND)</option>
+                </select>
+
+                <button class="btn btn-sm btn-outline-secondary"
+                        @onclick="ClearTagFilters"
+                        disabled="@isBusy">
+                    Clear filters
+                </button>
+            </div>
+        </div>
+
+        <!-- Selected chips for tags -->
+        <div class="d-flex flex-wrap gap-2 mb-2">
+            @if (selectedTags.Count == 0)
+            {
+                <span class="text-secondary small">No tag filters selected.</span>
+            }
+            else
+            {
+                @foreach (var t in selectedTags.OrderBy(x => x))
+                {
+                    <button type="button"
+                            class="badge rounded-pill bg-primary border-0"
+                            title="Click to remove"
+                            @onclick="() => ToggleTag(t)"
+                            disabled="@isBusy">
+                        @t <span class="ms-1">×</span>
+                    </button>
+                }
+            }
+        </div>
+
+        <!-- Tag search checkbox -->
+        <div class="d-flex flex-wrap gap-3">
+            @foreach (var t in VisibleTags())
+            {
+                <label class="d-flex align-items-center gap-2 small" style="cursor:pointer;">
+                    <input type="checkbox"
+                           checked="@selectedTags.Contains(t)"
+                           @onchange="() => ToggleTag(t)"
+                           disabled="@isBusy" />
+                    <span>@t</span>
+                </label>
+            }
+        </div>
+    </div>
+
     <!-- ENTRIES -->
     @if (isBusy)
     {
         <div class="text-secondary">Loading...</div>
     }
-    else if (FilteredEntries.Count == 0)
+    else if (filteredEntries.Count == 0)
     {
         <div class="text-secondary">No entries found.</div>
     }
@@ -126,16 +130,27 @@
         <div class="list-group">
             @foreach (var e in PagedEntries)
             {
+                var canDelete = CanDelete(e);
+
                 <div class="list-group-item">
-                    <div class="d-flex justify-content-between align-items-start gap-3 mt-1">
+                    <div class="d-flex justify-content-between align-items-start gap-3 mt-2">
+                        <!-- Left: clickable area for preview -->
                         <button class="btn btn-link text-start p-0 flex-grow-1"
                                 style="text-decoration:none;"
                                 @onclick="() => OpenPreview(e)"
                                 disabled="@isBusy">
                             <div class="fw-semibold">@e.Title</div>
                             <div class="text-secondary small">@e.EntryDate</div>
+
+                            @if (!string.IsNullOrWhiteSpace(e.Content))
+                            {
+                                <div class="text-secondary mt-2">
+                                    @Snippet(e.Content, 140)
+                                </div>
+                            }
                         </button>
 
+                        <!-- Right: actions -->
                         <div class="d-flex flex-column align-items-end gap-2" style="min-width: 160px;">
                             <div class="text-secondary small">@e.WordCount words</div>
 
@@ -147,16 +162,11 @@
                                 </button>
 
                                 <button class="btn btn-sm btn-outline-danger"
-                                        disabled="@(isBusy || !CanDelete(e))"
-                                        @onclick="() => DeleteEntryAsync(e)">
+                                        @onclick="() => DeleteEntryAsync(e)"
+                                        disabled="@isBusy">
                                     Delete
                                 </button>
                             </div>
-
-                            @if (!CanDelete(e))
-                            {
-                                <div class="text-secondary small">(Today only)</div>
-                            }
                         </div>
                     </div>
                 </div>
@@ -166,7 +176,10 @@
         <!-- PAGINATION -->
         <div class="d-flex justify-content-between align-items-center mt-3">
             <div class="text-secondary small">
-                Showing @StartItem - @EndItem of @FilteredEntries.Count
+                Showing @(((currentPage - 1) * PageSize) + 1)
+                -
+                @Math.Min(currentPage * PageSize, filteredEntries.Count)
+                of @filteredEntries.Count
             </div>
 
             <div class="btn-group">
@@ -192,29 +205,102 @@
 
 @code {
     private List<JournalEntry> entries = new();
+    private List<JournalEntry> filteredEntries = new();
+
+    private string searchText = "";
+    private string sortMode = "newest";
 
     private bool isBusy = false;
     private string statusMessage = "";
     private string statusClass = "alert-secondary";
 
-    // Search
-    private string searchQuery = "";
-
     // Pagination
     private const int PageSize = 10;
     private int currentPage = 1;
 
-    // Mood filter
-    private List<Mood> allMoods = new();
-    private int primaryMoodFilterId = 0; // 0 = all
+    private int TotalPages =>
+        Math.Max(1, (int)Math.Ceiling((double)filteredEntries.Count / PageSize));
 
-    // Tag filter
-    private HashSet<string> allTags = new(StringComparer.OrdinalIgnoreCase);
+    private IEnumerable<JournalEntry> PagedEntries =>
+        filteredEntries
+            .Skip((currentPage - 1) * PageSize)
+            .Take(PageSize);
+
+    private void PrevPage()
+    {
+        if (currentPage > 1) currentPage--;
+    }
+
+    private void NextPage()
+    {
+        if (currentPage < TotalPages) currentPage++;
+    }
+
+    // Tag filter state
+    private readonly List<string> allTags = new()
+    {
+        "Work","Study","Health","Family","Friends","Stress","Happy","Goal",
+        "Reflection","Productivity","Exercise","Sleep","Important","Gratitude","Travel"
+    };
+
     private HashSet<string> selectedTags = new(StringComparer.OrdinalIgnoreCase);
+    private string tagSearchText = "";
+    private string tagFilterMode = "any"; // "any" (OR) | "all" (AND)
 
     protected override async Task OnInitializedAsync()
     {
+        if (!AuthState.IsAuthenticated)
+        {
+            Nav.NavigateTo("/login", replace: true);
+            return;
+        }
+
         await ReloadAsync();
+    }
+
+    private void OnSearchInput(ChangeEventArgs e)
+    {
+        searchText = e.Value?.ToString() ?? "";
+        ApplyFilters();
+    }
+
+    private void OnSortChanged(ChangeEventArgs e)
+    {
+        sortMode = e.Value?.ToString() ?? "newest";
+        ApplyFilters();
+    }
+
+    private void OnTagModeChanged(ChangeEventArgs e)
+    {
+        tagFilterMode = e.Value?.ToString() ?? "any";
+        ApplyFilters();
+    }
+
+    private void ToggleTag(string tag)
+    {
+        if (selectedTags.Contains(tag))
+            selectedTags.Remove(tag);
+        else
+            selectedTags.Add(tag);
+
+        ApplyFilters();
+    }
+
+    private void ClearTagFilters()
+    {
+        selectedTags.Clear();
+        tagSearchText = "";
+        tagFilterMode = "any";
+        ApplyFilters();
+    }
+
+    private IEnumerable<string> VisibleTags()
+    {
+        if (string.IsNullOrWhiteSpace(tagSearchText))
+            return allTags;
+
+        var s = tagSearchText.Trim();
+        return allTags.Where(t => t.Contains(s, StringComparison.OrdinalIgnoreCase));
     }
 
     private async Task ReloadAsync()
@@ -224,21 +310,8 @@
 
         try
         {
-            // Load entries (already includes moods + tags from service)
             entries = await JournalService.GetEntriesAsync();
-
-            // Load moods for filter dropdown
-            allMoods = await JournalService.GetMoodsAsync();
-
-            // Build tag universe from existing entry tags
-            allTags = entries
-                .SelectMany(e => e.EntryTags)
-                .Select(et => et.Tag?.Name)
-                .Where(n => !string.IsNullOrWhiteSpace(n))!
-                .Select(n => n!)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            currentPage = 1;
+            ApplyFilters();
         }
         catch (Exception ex)
         {
@@ -250,95 +323,49 @@
         }
     }
 
-    // ---------- Filters + Search ----------
-    private List<JournalEntry> FilteredEntries
+    private void ApplyFilters()
     {
-        get
+        IEnumerable<JournalEntry> q = entries;
+
+        // Search 
+        if (!string.IsNullOrWhiteSpace(searchText))
         {
-            IEnumerable<JournalEntry> q = entries;
-
-            // Title search only
-            if (!string.IsNullOrWhiteSpace(searchQuery))
-            {
-                var s = searchQuery.Trim();
-                q = q.Where(e => !string.IsNullOrWhiteSpace(e.Title) &&
-                                 e.Title.Contains(s, StringComparison.OrdinalIgnoreCase));
-            }
-
-            // Primary mood filter
-            if (primaryMoodFilterId > 0)
-            {
-                q = q.Where(e =>
-                    e.EntryMoods.Any(em => em.MoodRole == "primary" && em.MoodId == primaryMoodFilterId));
-            }
-
-            // Tags filter (ANY match)
-            if (selectedTags.Count > 0)
-            {
-                q = q.Where(e =>
-                {
-                    var tags = e.EntryTags
-                        .Select(et => et.Tag?.Name)
-                        .Where(n => !string.IsNullOrWhiteSpace(n))!
-                        .Select(n => n!);
-
-                    return tags.Any(t => selectedTags.Contains(t));
-                });
-            }
-
-            // Keep newest first
-            q = q.OrderByDescending(e => e.EntryDate);
-
-            return q.ToList();
+            var s = searchText.Trim().ToLowerInvariant();
+            q = q.Where(e => (e.Title ?? "").ToLowerInvariant().Contains(s));
         }
-    }
 
-    private int TotalPages =>
-        Math.Max(1, (int)Math.Ceiling(FilteredEntries.Count / (double)PageSize));
-
-    private IEnumerable<JournalEntry> PagedEntries =>
-        FilteredEntries.Skip((currentPage - 1) * PageSize).Take(PageSize);
-
-    private int StartItem =>
-        FilteredEntries.Count == 0 ? 0 : ((currentPage - 1) * PageSize) + 1;
-
-    private int EndItem =>
-        Math.Min(currentPage * PageSize, FilteredEntries.Count);
-
-    private void OnSearchInput(ChangeEventArgs e)
-    {
-        searchQuery = e.Value?.ToString() ?? "";
-        currentPage = 1;
-    }
-
-    private void OnPrimaryMoodFilterChanged(ChangeEventArgs e)
-    {
-        if (int.TryParse(e.Value?.ToString(), out var id))
+        // Tag filter
+        if (selectedTags.Count > 0)
         {
-            primaryMoodFilterId = id;
-            currentPage = 1;
+            q = q.Where(e =>
+            {
+                var entryTags = e.EntryTags
+                    .Select(et => et.Tag?.Name)
+                    .Where(n => !string.IsNullOrWhiteSpace(n))!
+                    .Select(n => n!);
+
+                return tagFilterMode == "any"
+                    ? entryTags.Any(t => selectedTags.Contains(t))
+                    : selectedTags.All(sel =>
+                        entryTags.Any(t => string.Equals(t, sel, StringComparison.OrdinalIgnoreCase)));
+            });
         }
-    }
 
-    private void ToggleTag(string tag)
-    {
-        if (selectedTags.Contains(tag))
-            selectedTags.Remove(tag);
-        else
-            selectedTags.Add(tag);
+        // Sort
+        q = sortMode == "oldest"
+            ? q.OrderBy(e => e.EntryDate)
+            : q.OrderByDescending(e => e.EntryDate);
 
+        filteredEntries = q.ToList();
+
+        // Pagination: reset to page 1 when filters change
         currentPage = 1;
+
+        // Safety clamp
+        if (currentPage > TotalPages) currentPage = TotalPages;
+        if (currentPage < 1) currentPage = 1;
     }
 
-    private void ClearFilters()
-    {
-        searchQuery = "";
-        primaryMoodFilterId = 0;
-        selectedTags.Clear();
-        currentPage = 1;
-    }
-
-    // ---------- Nav ----------
     private void GoToToday()
     {
         var todayKey = DateTime.Today.ToString("yyyy-MM-dd");
@@ -353,9 +380,10 @@
         Nav.NavigateTo($"/journal/preview/{entry.EntryDate}");
     }
 
-    // ---------- Delete (today only) ----------
+    // only allow deleting today's entry
     private bool CanDelete(JournalEntry e)
     {
+        if (e == null || string.IsNullOrWhiteSpace(e.EntryDate)) return false;
         var todayKey = DateTime.Today.ToString("yyyy-MM-dd");
         return string.Equals(e.EntryDate, todayKey, StringComparison.Ordinal);
     }
@@ -364,7 +392,11 @@
     {
         if (entry == null) return;
 
-        var confirm = await JS.InvokeAsync<bool>("confirm", "Delete this entry? This cannot be undone.");
+        var confirm = await JS.InvokeAsync<bool>(
+            "confirm",
+            "Delete this entry? This cannot be undone."
+        );
+
         if (!confirm) return;
 
         isBusy = true;
@@ -373,6 +405,7 @@
         try
         {
             var ok = await JournalService.DeleteEntryAsync(entry.Id);
+
             if (!ok)
             {
                 SetStatus("Delete failed.", "alert-danger");
@@ -380,17 +413,7 @@
             }
 
             SetStatus("Deleted", "alert-success");
-            entries = await JournalService.GetEntriesAsync();
-
-            // rebuild tag universe (in case deleting removed last tag)
-            allTags = entries
-                .SelectMany(e => e.EntryTags)
-                .Select(et => et.Tag?.Name)
-                .Where(n => !string.IsNullOrWhiteSpace(n))!
-                .Select(n => n!)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            currentPage = 1;
+            await ReloadAsync();
         }
         catch (Exception ex)
         {
@@ -402,17 +425,13 @@
         }
     }
 
-    private void PrevPage()
+    private static string Snippet(string text, int max)
     {
-        if (currentPage > 1) currentPage--;
+        if (string.IsNullOrWhiteSpace(text)) return "";
+        text = text.Replace("\r", " ").Replace("\n", " ").Trim();
+        return text.Length <= max ? text : text.Substring(0, max) + "...";
     }
 
-    private void NextPage()
-    {
-        if (currentPage < TotalPages) currentPage++;
-    }
-
-    // Status 
     private void SetStatus(string message, string cssClass)
     {
         statusMessage = message;

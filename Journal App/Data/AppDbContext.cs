@@ -1,5 +1,4 @@
-﻿using Android.Content;
-using Journal_App.Entities;
+﻿using Journal_App.Entities;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;

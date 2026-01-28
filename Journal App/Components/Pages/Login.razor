@@ -1,0 +1,88 @@
+﻿@page "/login"
+@layout LoginLayout
+@inject NavigationManager Nav
+@inject AuthStateService AuthState
+@inject Journal_App.Services.UserSettingsService SettingsService
+
+<div class="login-page text-center mt-5">
+    <p class="h3 mb-3">Journal App</p>
+    <p class="text-secondary mb-3">Enter your 4-digit PIN to access your Journal</p>
+
+    <input type="password"
+           maxlength="4"
+           class="form-control mx-auto text-center mb-2"
+           style="width: 100%; font-size: 2em;"
+           @bind="pin"
+           disabled="@isLocked" />
+
+    <p class="text-secondary mb-3">Hint: @pinHint</p>
+
+    <button class="btn btn-primary"
+            style="width: 100%; font-size: 1.2em;"
+            @onclick="HandleLogin"
+            disabled="@isBusy">
+        <span class="bi bi-box-arrow-in-right" style="margin-right: 0.5rem;"></span>
+        @(isBusy ? "Checking..." : "Login")
+    </button>
+
+    @if (!string.IsNullOrWhiteSpace(error))
+    {
+        <p class="text-danger mt-3">@error</p>
+    }
+</div>
+
+@code {
+    private string pin = "";
+    private string error = "";
+
+    private string pinHint = "Loading hint...";
+    private bool isLocked = false;
+    private bool isBusy = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var settings = await SettingsService.GetSettingsAsync();
+        pinHint = settings.PinHint;
+
+        await SettingsService.EnsurePinSecretExistsAsync();
+    }
+
+    private async Task HandleLogin()
+    {
+        error = "";
+        isLocked = false;
+
+        if (isBusy) return;
+        isBusy = true;
+
+        try
+        {
+            var (status, secondsRemaining) = await SettingsService.VerifyPinWithLockoutAsync(pin);
+
+            if (status == Journal_App.Services.PinAuthStatus.Success)
+            {
+                AuthState.Login();
+                Nav.NavigateTo("/dashboard", replace: true);
+                return;
+            }
+
+            if (status == Journal_App.Services.PinAuthStatus.Locked)
+            {
+                isLocked = true;
+                var sec = secondsRemaining ?? 30;
+                error = $"Too many attempts. Try again in {sec}s.";
+                return;
+            }
+
+            error = "Invalid PIN.";
+        }
+        catch (Exception ex)
+        {
+            error = "Login error: " + ex.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+}
