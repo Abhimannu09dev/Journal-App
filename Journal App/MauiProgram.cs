@@ -1,4 +1,6 @@
-﻿using Microsoft.Extensions.Logging;
+﻿using Journal_App.Data;
+using Journal_App.Services;
+using Microsoft.EntityFrameworkCore;
 
 namespace Journal_App
 {
@@ -7,6 +9,7 @@ namespace Journal_App
         public static MauiApp CreateMauiApp()
         {
             var builder = MauiApp.CreateBuilder();
+
             builder
                 .UseMauiApp<App>()
                 .ConfigureFonts(fonts =>
@@ -17,11 +20,30 @@ namespace Journal_App
             builder.Services.AddMauiBlazorWebView();
 
 #if DEBUG
-    		builder.Services.AddBlazorWebViewDeveloperTools();
-    		builder.Logging.AddDebug();
+            builder.Services.AddBlazorWebViewDeveloperTools();
 #endif
 
-            return builder.Build();
+            // DbContext (SQLite)
+            builder.Services.AddDbContext<AppDbContext>(options =>
+            {
+                var dbDir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+                var dbPath = Path.Combine(dbDir, "journal.db");
+                options.UseSqlite($"Filename={dbPath}");
+            });
+
+            // Services
+            builder.Services.AddScoped<IJournalService, JournalService>();
+
+            var app = builder.Build();
+
+            // Ensure database exists
+            using (var scope = app.Services.CreateScope())
+            {
+                var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
+                db.Database.EnsureCreated();
+            }
+
+            return app;
         }
     }
 }

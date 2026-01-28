@@ -1,0 +1,239 @@
+﻿@page "/journal/entry/{dateKey}"
+@using System.Globalization
+@using Journal_App.Entities
+@using Journal_App.Services
+@inject IJournalService JournalService
+@inject NavigationManager Nav
+@inject IJSRuntime JS
+
+<div class="d-flex flex-column align-items-center justify-content-center vh-100 p-3">
+    <div class="bg-white rounded-4 shadow p-4 my-4 w-100" style="max-width: 800px; min-height: 520px;">
+
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <p class="h3 mb-1">@pageTitle</p>
+                <p class="text-secondary mb-0">@dateDisplay</p>
+            </div>
+
+            <button class="btn btn-outline-secondary" @onclick="GoBack" disabled="@isBusy">
+                Back
+            </button>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(statusMessage))
+        {
+            <div class="alert @statusClass py-2" role="alert">@statusMessage</div>
+        }
+
+        <div class="mb-3">
+            <label class="form-label text-secondary">Title</label>
+            <input class="form-control"
+                   placeholder="Give this day a title..."
+                   @bind="model.Title"
+                   disabled="@isBusy" />
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label text-secondary">Content</label>
+            <textarea class="form-control"
+                      rows="10"
+                      placeholder="Write your entry..."
+                      @bind="model.Content"
+                      disabled="@isBusy"></textarea>
+        </div>
+
+        <div class="d-flex gap-2">
+            <button class="btn btn-primary flex-grow-1"
+                    style="font-size: 1.1em;"
+                    @onclick="SaveAsync"
+                    disabled="@isBusy">
+                @(isExistingEntry ? "Update Entry" : "Save Entry")
+            </button>
+
+            @if (isExistingEntry)
+            {
+                <button class="btn btn-outline-danger"
+                        @onclick="DeleteAsync"
+                        disabled="@isBusy || !canDelete">
+                    Delete
+                </button>
+            }
+        </div>
+
+        @if (!canDelete && isExistingEntry)
+        {
+            <div class="text-secondary small mt-2">
+                Past entries are locked (delete allowed only for today).
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    [Parameter] public string dateKey { get; set; } = "";
+
+    private JournalEntry model = new();
+    private bool isExistingEntry = false;
+    private bool isBusy = false;
+
+    private DateTime selectedDate;
+    private string selectedDateKey = "";
+    private string dateDisplay = "";
+    private string pageTitle = "Journal Entry";
+
+    private bool canDelete = false;
+
+    private string statusMessage = "";
+    private string statusClass = "alert-secondary";
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (!TryParseDateKey(dateKey, out selectedDate))
+        {
+            SetStatus("Invalid date format. Use yyyy-MM-dd.", "alert-danger");
+            return;
+        }
+
+        selectedDateKey = selectedDate.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        dateDisplay = selectedDate.ToString("dddd, MMMM dd, yyyy", CultureInfo.InvariantCulture);
+
+        var todayKey = DateTime.Today.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+        pageTitle = (selectedDateKey == todayKey) ? "Today’s Journal" : "Journal Entry";
+        canDelete = (selectedDateKey == todayKey);
+
+        await LoadEntryAsync();
+    }
+
+    private async Task LoadEntryAsync()
+    {
+        isBusy = true;
+        ClearStatus();
+
+        try
+        {
+            var entry = await JournalService.GetEntryByDateAsync(selectedDateKey);
+
+            if (entry is null)
+            {
+                isExistingEntry = false;
+                model = new JournalEntry { Title = "", Content = "" };
+            }
+            else
+            {
+                isExistingEntry = true;
+                model = entry;
+            }
+        }
+        catch (Exception ex)
+        {
+            SetStatus("Failed to load entry. " + ex.Message, "alert-danger");
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task SaveAsync()
+    {
+        isBusy = true;
+        ClearStatus();
+
+        try
+        {
+            (bool ok, string? error) result;
+
+            if (!isExistingEntry)
+            {
+                result = await JournalService.CreateEntryAsync(selectedDate, model.Title, model.Content);
+                if (!result.ok)
+                {
+                    SetStatus(result.error ?? "Create failed.", "alert-warning");
+                    return;
+                }
+            }
+            else
+            {
+                result = await JournalService.UpdateEntryAsync(model.Id, model.Title, model.Content);
+                if (!result.ok)
+                {
+                    SetStatus(result.error ?? "Update failed.", "alert-danger");
+                    return;
+                }
+            }
+
+            await LoadEntryAsync();
+            SetStatus(isExistingEntry ? "Updated" : "Saved", "alert-success");
+        }
+        catch (Exception ex)
+        {
+            SetStatus("Save failed. " + ex.Message, "alert-danger");
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private async Task DeleteAsync()
+    {
+        if (!canDelete)
+        {
+            SetStatus("Delete is allowed only for today's entry.", "alert-warning");
+            return;
+        }
+
+        var confirm = await JS.InvokeAsync<bool>("confirm", "Delete this entry? This cannot be undone.");
+        if (!confirm) return;
+
+        isBusy = true;
+        ClearStatus();
+
+        try
+        {
+            var ok = await JournalService.DeleteEntryAsync(model.Id);
+            if (!ok)
+            {
+                SetStatus("Delete failed.", "alert-danger");
+                return;
+            }
+
+            isExistingEntry = false;
+            model = new JournalEntry();
+            SetStatus("Deleted", "alert-success");
+        }
+        catch (Exception ex)
+        {
+            SetStatus("Delete failed. " + ex.Message, "alert-danger");
+        }
+        finally
+        {
+            isBusy = false;
+        }
+    }
+
+    private void GoBack() => Nav.NavigateTo("/journal");
+
+    private static bool TryParseDateKey(string? key, out DateTime date)
+    {
+        return DateTime.TryParseExact(
+            key ?? "",
+            "yyyy-MM-dd",
+            CultureInfo.InvariantCulture,
+            DateTimeStyles.None,
+            out date
+        );
+    }
+
+    private void SetStatus(string message, string cssClass)
+    {
+        statusMessage = message;
+        statusClass = cssClass;
+    }
+
+    private void ClearStatus()
+    {
+        statusMessage = "";
+        statusClass = "alert-secondary";
+    }
+}
