@@ -39,8 +39,22 @@
         StateHasChanged();
     }
 
-    private Task ApplyThemeToCssAsync(string mode)
-        => JS.InvokeVoidAsync("journalTheme.setTheme", mode).AsTask();
+    private async Task ApplyThemeToCssAsync(string mode)
+    {
+        try
+        {
+            await JS.InvokeVoidAsync("journalTheme.setTheme", mode);
+        }
+        catch (JSException)
+        {
+            // JS runtime not ready yet (e.g. called before WebView fully loaded).
+            // The theme.js script will apply the correct class on its own load.
+        }
+        catch (TaskCanceledException)
+        {
+            // Component disposed during navigation — safe to ignore.
+        }
+    }
 
     public void Dispose()
     {
