@@ -1,72 +1,160 @@
 ﻿@page "/tags"
+@using Journal_App.Data
+@using Journal_App.Entities
+@using Microsoft.EntityFrameworkCore
+@inject AppDbContext DbContext
+@inject AuthStateService AuthState
+@inject NavigationManager Nav
 
-<h3>Manage Tags</h3>
+<h3 class="mb-3">Manage Tags</h3>
 
-<div class="card p-3 mb-3">
-    <div class="input-group">
-        <input class="form-control" placeholder="New tag name…" @bind="NewTag" />
-        <button class="btn btn-primary" @onclick="AddTag" disabled="@string.IsNullOrWhiteSpace(NewTag)">
-            Add
-        </button>
+@if (isLoading)
+{
+    <p class="text-secondary">Loading tags...</p>
+}
+else
+{
+    <div class="card p-3 mb-3">
+        <div class="input-group">
+            <input class="form-control"
+                   placeholder="New tag name…"
+                   @bind="NewTag"
+                   @bind:event="oninput"
+                   maxlength="50" />
+            <button class="btn btn-primary"
+                    @onclick="AddTag"
+                    disabled="@(string.IsNullOrWhiteSpace(NewTag) || isBusy)">
+                Add
+            </button>
+        </div>
+
+        @if (!string.IsNullOrWhiteSpace(Error))
+        {
+            <div class="text-danger mt-2 small">@Error</div>
+        }
     </div>
 
-    @if (!string.IsNullOrWhiteSpace(Error))
-    {
-        <div class="text-danger mt-2">@Error</div>
-    }
-</div>
+    <div class="card p-3">
+        <h6 class="mb-3">All Tags (@tagList.Count)</h6>
 
-<div class="card p-3">
-    <h6 class="mb-3">All Tags (@tagList.Count)</h6>
-
-    @if (!tagList.Any())
-    {
-        <p class="text-muted mb-0">No tags yet.</p>
-    }
-    else
-    {
-        <div class="list-group">
-            @foreach (var t in tagList.OrderBy(x => x))
-            {
-                <div class="list-group-item d-flex justify-content-between align-items-center">
-                    <span>@t</span>
-                    <button class="btn btn-sm btn-outline-danger"
-                            @onclick="() => DeleteTag(t)">
-                        Delete
-                    </button>
-                </div>
-            }
-        </div>
-    }
-</div>
+        @if (!tagList.Any())
+        {
+            <p class="text-muted mb-0">No tags yet.</p>
+        }
+        else
+        {
+            <div class="list-group">
+                @foreach (var t in tagList.OrderBy(x => x.Name))
+                {
+                    <div class="list-group-item d-flex justify-content-between align-items-center">
+                        <span>@t.Name</span>
+                        <button class="btn btn-sm btn-outline-danger"
+                                @onclick="() => DeleteTag(t)"
+                                disabled="@isBusy">
+                            Delete
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+    </div>
+}
 
 @code {
-    private List<string> tagList = new()
-    {
-        "Work", "Study", "Health"
-    };
-
+    private List<Tag> tagList = new();
     private string NewTag = "";
     private string Error = "";
+    private bool isLoading = true;
+    private bool isBusy = false;
 
-    private void AddTag()
+    protected override async Task OnInitializedAsync()
+    {
+        if (!AuthState.IsAuthenticated)
+        {
+            Nav.NavigateTo("/login", replace: true);
+            return;
+        }
+
+        await LoadTagsAsync();
+    }
+
+    private async Task LoadTagsAsync()
+    {
+        isLoading = true;
+        try
+        {
+            tagList = await DbContext.Tags
+                .Where(t => t.IsActive)
+                .OrderBy(t => t.Name)
+                .ToListAsync();
+        }
+        finally
+        {
+            isLoading = false;
+        }
+    }
+
+    private async Task AddTag()
     {
         Error = "";
-        var clean = NewTag.Trim();
+        var clean = (NewTag ?? "").Trim();
 
-        if (tagList.Contains(clean, StringComparer.OrdinalIgnoreCase))
+        if (string.IsNullOrWhiteSpace(clean)) return;
+
+        if (clean.Length > 50)
+        {
+            Error = "Tag name must be 50 characters or less.";
+            return;
+        }
+
+        if (tagList.Any(t => string.Equals(t.Name, clean, StringComparison.OrdinalIgnoreCase)))
         {
             Error = "That tag already exists.";
             return;
         }
 
-        tagList.Add(clean);
-        NewTag = "";
+        isBusy = true;
+        try
+        {
+            var tag = new Tag
+            {
+                Name = clean,
+                IsActive = true,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            DbContext.Tags.Add(tag);
+            await DbContext.SaveChangesAsync();
+
+            tagList.Add(tag);
+            NewTag = "";
+        }
+        catch (Exception ex)
+        {
+            Error = "Failed to add tag: " + ex.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
     }
 
-    private void DeleteTag(string tag)
+    private async Task DeleteTag(Tag tag)
     {
-        tagList.RemoveAll(t =>
-            string.Equals(t, tag, StringComparison.OrdinalIgnoreCase));
+        isBusy = true;
+        try
+        {
+            tag.IsActive = false;
+            await DbContext.SaveChangesAsync();
+            tagList.Remove(tag);
+        }
+        catch (Exception ex)
+        {
+            Error = "Failed to delete tag: " + ex.Message;
+        }
+        finally
+        {
+            isBusy = false;
+        }
     }
 }

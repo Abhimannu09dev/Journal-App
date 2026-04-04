@@ -83,6 +83,42 @@ namespace Journal_App
                     db.SaveChanges();
                 }
 
+                // Seed Moods (only if missing)
+                var seedMoods = new[]
+                {
+                    ("Happy",      "😊"),
+                    ("Sad",        "😢"),
+                    ("Angry",      "😠"),
+                    ("Anxious",    "😰"),
+                    ("Calm",       "😌"),
+                    ("Excited",    "🤩"),
+                    ("Grateful",   "🙏"),
+                    ("Tired",      "😴"),
+                    ("Motivated",  "💪"),
+                    ("Lonely",     "😔"),
+                    ("Stressed",   "😤"),
+                    ("Hopeful",    "🌟"),
+                };
+
+                var existingMoodNames = db.Moods.Select(m => m.Name).ToList();
+                var moodSet = new HashSet<string>(existingMoodNames, StringComparer.OrdinalIgnoreCase);
+
+                var newMoods = seedMoods
+                    .Where(m => !moodSet.Contains(m.Item1))
+                    .Select(m => new Mood
+                    {
+                        Name = m.Item1,
+                        Emoji = m.Item2,
+                        IsActive = true
+                    })
+                    .ToList();
+
+                if (newMoods.Count > 0)
+                {
+                    db.Moods.AddRange(newMoods);
+                    db.SaveChanges();
+                }
+
                 // Ensure default settings + default PIN exist
                 var settingsSvc = scope.ServiceProvider.GetRequiredService<UserSettingsService>();
                 settingsSvc.GetSettingsAsync().GetAwaiter().GetResult();

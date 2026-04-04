@@ -236,12 +236,8 @@
         if (currentPage < TotalPages) currentPage++;
     }
 
-    // Tag filter state
-    private readonly List<string> allTags = new()
-    {
-        "Work","Study","Health","Family","Friends","Stress","Happy","Goal",
-        "Reflection","Productivity","Exercise","Sleep","Important","Gratitude","Travel"
-    };
+    // Tag filter state - loaded from DB
+    private List<string> allTags = new();
 
     private HashSet<string> selectedTags = new(StringComparer.OrdinalIgnoreCase);
     private string tagSearchText = "";
@@ -310,6 +306,9 @@
 
         try
         {
+            var dbTags = await JournalService.GetActiveTagsAsync();
+            allTags = dbTags.Select(t => t.Name).ToList();
+
             entries = await JournalService.GetEntriesAsync();
             ApplyFilters();
         }
@@ -327,7 +326,7 @@
     {
         IEnumerable<JournalEntry> q = entries;
 
-        // Search 
+        // Search
         if (!string.IsNullOrWhiteSpace(searchText))
         {
             var s = searchText.Trim().ToLowerInvariant();

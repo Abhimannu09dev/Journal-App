@@ -59,7 +59,7 @@ else
                 <NavLink class="nav-link"
                          href="export"
                          @onclick="CloseMenuOnMobile">
-                    <span class="bi bi-calendar-day me-2"></span>
+                    <span class="bi bi-file-earmark-arrow-down me-2"></span>
                     Export
                 </NavLink>
 
@@ -106,7 +106,7 @@ else
         AuthState.StateChanged += HandleAuthStateChanged;
         SettingsService.SettingsChanged += HandleSettingsChanged;
 
-        // Load username once at start 
+        // Load username once at start
         if (AuthState.IsLoggedIn)
             await LoadUsernameAsync();
     }

@@ -28,6 +28,9 @@ namespace Journal_App.Services
         // MOODS
         Task<List<Mood>> GetMoodsAsync();
 
+        // TAGS
+        Task<List<Tag>> GetActiveTagsAsync();
+
         Task<(bool ok, string? error)> SetEntryMoodsAsync(
             int entryId,
             int primaryMoodId,

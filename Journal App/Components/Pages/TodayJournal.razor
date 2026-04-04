@@ -166,31 +166,31 @@
                       rows="8"
                       placeholder="Write your thoughts using Markdown..."
                       @bind="model.Content"
-                      disabled="@isBusy">
+                          disabled="@isBusy">
             </textarea>
-        </div>
+            </div>
 
-        <div class="d-flex gap-2">
-            <button class="btn btn-primary flex-grow-1"
-                    style="font-size: 1.1em;"
-                    @onclick="SaveAsync"
-                    disabled="@isBusy">
-                <span class="bi bi-save me-2"></span>
-                @(isExistingEntry ? "Update Entry" : "Save Entry")
-            </button>
-
-            @if (isExistingEntry)
-            {
-                <button class="btn btn-outline-danger"
-                        @onclick="DeleteAsync"
+            <div class="d-flex gap-2">
+                <button class="btn btn-primary flex-grow-1"
+                        style="font-size: 1.1em;"
+                        @onclick="SaveAsync"
                         disabled="@isBusy">
-                    <span class="bi bi-trash me-2"></span>Delete
+                    <span class="bi bi-save me-2"></span>
+                    @(isExistingEntry ? "Update Entry" : "Save Entry")
                 </button>
-            }
-        </div>
 
+                @if (isExistingEntry)
+                {
+                    <button class="btn btn-outline-danger"
+                            @onclick="DeleteAsync"
+                            disabled="@isBusy">
+                        <span class="bi bi-trash me-2"></span>Delete
+                    </button>
+                }
+            </div>
+
+        </div>
     </div>
-</div>
 
 @code {
     [Parameter] public string dateKey { get; set; } = "";
@@ -207,19 +207,15 @@
     private string statusMessage = "";
     private string statusClass = "alert-secondary";
 
-    // Tags 
-    private readonly List<string> allTags = new()
-    {
-        "Work","Study","Health","Family","Friends","Stress","Happy","Goal",
-        "Reflection","Productivity","Exercise","Sleep","Important","Gratitude","Travel"
-    };
+    // Tags loaded from DB
+    private List<string> allTags = new();
 
     private HashSet<string> selectedTags = new(StringComparer.OrdinalIgnoreCase);
     private string tagSearchText = "";
 
     // Moods
     private List<Mood> allMoods = new();
-    private int primaryMoodId = 0; 
+    private int primaryMoodId = 0;
     private HashSet<int> secondaryMoodIds = new();
 
     protected override async Task OnParametersSetAsync()
@@ -247,7 +243,10 @@
         var todayKey = DateTime.Today.ToString("yyyy-MM-dd");
         pageTitle = (selectedDateKey == todayKey) ? "Today’s Journal" : "Journal Entry";
 
-        // Load moods list first (needed for dropdown/checkboxes)
+        // Load tags and moods from DB
+        var dbTags = await JournalService.GetActiveTagsAsync();
+        allTags = dbTags.Select(t => t.Name).ToList();
+
         allMoods = await JournalService.GetMoodsAsync();
 
         await LoadEntryAsync();
@@ -332,7 +331,7 @@
                 return;
             }
 
-            // Mood 
+            // Mood
             if (primaryMoodId <= 0)
             {
                 SetStatus("Primary mood is required.", "alert-warning");
@@ -483,7 +482,7 @@
         }
     }
 
-    // Tag 
+    // Tag
     private void ToggleTag(string tag)
     {
         if (selectedTags.Contains(tag))
@@ -506,7 +505,7 @@
         return allTags.Where(t => t.Contains(s, StringComparison.OrdinalIgnoreCase));
     }
 
-    // Mood 
+    // Mood
     private void ToggleSecondaryMood(int moodId)
     {
         if (secondaryMoodIds.Contains(moodId))

@@ -18,6 +18,10 @@ namespace Journal_App.Data
         public DbSet<Tag> Tags => Set<Tag>();
         public DbSet<EntryTag> EntryTags => Set<EntryTag>();
 
+        public DbSet<AuthSecret> AuthSecrets => Set<AuthSecret>();
+        public DbSet<UserSettings> UserSettings => Set<UserSettings>();
+        public DbSet<ExportHistory> ExportHistory => Set<ExportHistory>();
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -66,6 +70,31 @@ namespace Journal_App.Data
             modelBuilder.Entity<EntryMood>(em =>
             {
                 em.HasKey(x => new { x.EntryId, x.MoodId, x.MoodRole });
+            });
+
+            // AuthSecret
+            modelBuilder.Entity<AuthSecret>(a =>
+            {
+                a.HasKey(x => x.Id);
+                a.Property(x => x.SecretType).IsRequired().HasMaxLength(50);
+                a.Property(x => x.SecretHash).IsRequired();
+                a.Property(x => x.Salt).IsRequired();
+            });
+
+            // UserSettings (single-row table)
+            modelBuilder.Entity<UserSettings>(s =>
+            {
+                s.HasKey(x => x.Id);
+                s.Property(x => x.Username).IsRequired().HasMaxLength(50);
+                s.Property(x => x.ThemeMode).IsRequired().HasMaxLength(20);
+            });
+
+            // ExportHistory
+            modelBuilder.Entity<ExportHistory>(e =>
+            {
+                e.HasKey(x => x.Id);
+                e.Property(x => x.ExportType).IsRequired().HasMaxLength(20);
+                e.Property(x => x.FileName).IsRequired().HasMaxLength(260);
             });
         }
 

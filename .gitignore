@@ -2,10 +2,38 @@
 .vs/
 *.user
 *.suo
+*.userosscache
+*.sln.docstates
 
-# Build output
+# Build outputs
 **/bin/
 **/obj/
 
+# NuGet
+*.nupkg
+**/packages/
+!**/packages/build/
+.nuget/
+
+# Rider / JetBrains
+.idea/
+*.DotSettings.user
+
+# macOS
+.DS_Store
+Thumbs.db
+
+# MAUI Android signing
+*.keystore
+*.jks
+
+# SQLite database (user data - never commit)
+*.db
+*.db-shm
+*.db-wal
+
 # Logs
 *.log
+
+# Published output
+**/publish/

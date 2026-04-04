@@ -126,6 +126,14 @@ namespace Journal_App.Services
                 .ToListAsync();
         }
 
+        public Task<List<Tag>> GetActiveTagsAsync()
+        {
+            return _context.Tags
+                .Where(t => t.IsActive)
+                .OrderBy(t => t.Name)
+                .ToListAsync();
+        }
+
         // MOODS
         public async Task<(bool ok, string? error)> SetEntryMoodsAsync(
             int entryId,
